@@ -1,29 +1,195 @@
-<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LogiMonitor • Operação logística</title>
-<style>
-:root{font-family:system-ui,sans-serif;color:#182d3e;background:#f3f6fa}*{box-sizing:border-box}body{margin:0}header{background:#112b40;color:white;padding:28px 5%;display:flex;justify-content:space-between;align-items:center}h1{margin:0;font-size:25px}header p{color:#b8cddd;margin:5px 0}main{max-width:1250px;margin:26px auto;padding:0 24px}.tag{background:#24485e;padding:8px 14px;border-radius:30px;font-size:13px}nav{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}button,.button{border:0;background:#0b766c;color:white;border-radius:8px;padding:11px 17px;cursor:pointer;font:inherit}nav button{background:white;color:#294256;border:1px solid #dbe4ea}nav button.active{background:#0b766c;color:white}h2{font-size:24px;margin:12px 0 5px}.muted{color:#63778a;font-size:14px}.filters,.panel{padding:20px;background:white;border:1px solid #dfe7ee;border-radius:12px;margin:20px 0}.filters{display:flex;gap:15px;align-items:end;flex-wrap:wrap}label{display:grid;gap:6px;font-size:13px;color:#4d6272}input,select,textarea{padding:10px;border:1px solid #cbd6df;border-radius:6px;font:inherit;background:white;min-width:0}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.card{background:white;border:1px solid #dfe7ee;border-radius:12px;padding:20px}.card strong{display:block;font-size:34px;margin:12px 0;color:#0b766c}.card small{color:#63778a}table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:14px 10px;border-bottom:1px solid #e7edf2}th{font-size:12px;color:#63778a}td button{padding:6px 10px;font-size:12px}.scroll{overflow:auto}.badge{display:inline-block;padding:5px 8px;background:#e8f3f0;color:#087264;border-radius:5px;font-size:12px}.warning{background:#fff0dd;color:#96520a}.alert{padding:14px;border-left:3px solid #df952d;margin:10px 0;background:#fffbf3}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}form button{margin-top:16px}dialog{width:min(760px,94vw);border:0;border-radius:14px;padding:28px;max-height:90vh;overflow:auto}dialog::backdrop{background:#112b4088}.event{border-left:2px solid #d4e5e1;padding:4px 18px 18px;margin-left:6px}.error{color:#b32828}.bar{height:11px;border-radius:5px;background:#0b766c;margin:6px 0 17px}.split{display:grid;grid-template-columns:1fr 1fr;gap:20px}footer{margin:30px 0;color:#63778a;font-size:12px}[hidden]{display:none!important}@media(max-width:800px){.cards,.split{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}header{align-items:start}.tag{display:none}}@media(max-width:500px){.cards,.split{grid-template-columns:1fr}}
-</style>
-<header><div><h1>◈ LogiMonitor</h1><p>Visibilidade para decidir. Rastreabilidade para agir.</p></div><span class="tag">Projeto acadêmico · Dados fictícios</span></header>
-<main><nav><button class="active" data-page="dashboard">Visão geral</button><button data-page="deliveries">Entregas</button><button data-page="alerts">Central de alertas</button><button data-page="concepts">Conceitos e regras</button></nav>
-<div id="notice" role="status"></div><div class="filters"><label>Transportadora<select id="carrier"><option value="">Todas</option></select></label><label>Coleta a partir de<input id="start" type="date"></label><label>Coleta até<input id="end" type="date"></label><button id="refresh">Atualizar</button><span class="muted" id="updated"></span></div>
-<section id="dashboard"><h2>Visão geral da operação</h2><p class="muted">Indicadores do conjunto filtrado pela data de coleta. Horários locais do computador.</p><div id="cards" class="cards"></div><div class="split"><div class="panel"><h3>Pontualidade por transportadora</h3><div id="comparison"></div></div><div class="panel"><h3>Resumo operacional</h3><div id="summary"></div><p class="muted">Use os alertas para priorizar contato com as transportadoras e investigar ocorrências.</p></div></div></section>
-<section id="deliveries" hidden><h2>Entregas e rastreabilidade</h2><p class="muted">Consulte o histórico ou registre uma nova movimentação.</p><div class="filters"><label>Buscar código ou cliente<input id="search" placeholder="Ex.: LOG0001"></label><button id="new">+ Cadastrar entrega</button><button id="export">Exportar CSV</button></div><div class="panel scroll"><table><thead><tr><th>CÓDIGO / CLIENTE</th><th>DESTINO / TRANSPORTADORA</th><th>PRAZO</th><th>SITUAÇÃO</th><th>HISTÓRICO</th></tr></thead><tbody id="rows"></tbody></table></div></section>
-<section id="alerts" hidden><h2>Central de alertas</h2><p class="muted">Regras avaliadas no momento da atualização. Entregas concluídas não geram alertas ativos.</p><div id="alertlist" class="panel"></div></section>
-<section id="concepts" hidden><h2>Conceitos e regras</h2><div class="panel"><h3>OTD · On-Time Delivery</h3><p>Entregas concluídas até a data e hora limite ÷ entregas concluídas × 100. Pendentes não entram no denominador. Sem entregas concluídas, o resultado é “—”.</p><h3>Tempo médio de entrega</h3><p>Soma das horas entre coleta e entrega ÷ quantidade de entregas concluídas. Usa horas corridas, incluindo finais de semana.</p><h3>Entregas em atraso</h3><p>Quantidade de entregas ainda não concluídas cujo prazo já venceu.</p><h3>Taxa de ocorrências</h3><p>Entregas com ao menos um evento de avaria, extravio ou tentativa sem sucesso ÷ todas as entregas filtradas × 100. Cada entrega conta uma vez, mesmo com vários eventos.</p><h3>Rastreabilidade e alertas</h3><p>O histórico registra o que aconteceu, quando e onde. A situação corresponde ao último evento. Um registro de entrega encerra o fluxo. Eventos não podem ocorrer no futuro ou antes do último registro.</p><p>Sem atualização: última movimentação há mais de 24 horas. Ocorrência: uma entrega em andamento possui registro de problema; o alerta permanece até sua conclusão. Esses parâmetros são regras didáticas adotadas pelo projeto.</p><h3>Limitações</h3><p>Dados fictícios, sem GPS ou integração externa. Não há autenticação: o servidor aceita apenas conexões locais. Os eventos são informados manualmente. A aplicação apoia a decisão, e a investigação operacional cabe ao usuário.</p></div></section>
-<footer>LogiMonitor · Python + SQLite · Atualize o painel para recalcular os alertas · Dados salvos neste computador.</footer></main>
-<dialog id="modal"><button id="close" style="float:right">Fechar</button><div id="modalbody"></div><p id="formerror" class="error" role="alert"></p></dialog>
-<script>
-let all=[],filtered=[],page='dashboard';const $=id=>document.getElementById(id);const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const date=v=>v?new Date(v).toLocaleString('pt-BR'):'—';const localNow=()=>{let d=new Date();return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,16)};
-async function load(){try{let r=await fetch('/api/data');if(!r.ok)throw Error('Falha ao carregar dados.');let data=await r.json();all=data.deliveries;let old=$('carrier').value;$('carrier').innerHTML='<option value="">Todas</option>'+[...new Set(all.map(d=>d.carrier))].sort().map(c=>`<option>${esc(c)}</option>`).join('');$('carrier').value=old;$('updated').textContent='Atualizado às '+date(data.updated);render()}catch(e){$('notice').textContent=e.message}}
-function render(){let start=$('start').value,end=$('end').value;if(start&&end&&start>end){$('notice').textContent='A data inicial deve ser anterior à data final.';return}$('notice').textContent='';filtered=all.filter(d=>(!$('carrier').value||d.carrier===$('carrier').value)&&(!start||d.collected.slice(0,10)>=start)&&(!end||d.collected.slice(0,10)<=end));let completed=filtered.filter(d=>d.delivered),punctual=completed.filter(d=>d.delivered<=d.deadline).length,otd=completed.length?100*punctual/completed.length:null,avg=completed.length?completed.reduce((s,d)=>s+(new Date(d.delivered)-new Date(d.collected))/36e5,0)/completed.length:null,late=filtered.filter(d=>d.alerts.includes('Entrega atrasada')).length,incidents=filtered.filter(d=>d.events.some(e=>['Avaria','Extravio','Tentativa sem sucesso'].includes(e.kind))).length;let fmt=(n,s)=>n===null?'—':n.toLocaleString('pt-BR',{maximumFractionDigits:1})+s;
-$('cards').innerHTML=[['Entregas no prazo (OTD)',fmt(otd,'%'),`${punctual} de ${completed.length} concluídas`],['Tempo médio',fmt(avg,' h'),'Entre coleta e entrega'],['Entregas em atraso',late,'Pendentes com prazo vencido'],['Taxa de ocorrências',fmt(filtered.length?100*incidents/filtered.length:null,'%'),`${incidents} entregas com ocorrência`]].map(([t,v,s])=>`<div class="card">${t}<strong>${v}</strong><small>${s}</small></div>`).join('');
-$('summary').innerHTML=`<p><b>${filtered.length}</b> entregas no período</p><p><b>${completed.length}</b> concluídas · <b>${filtered.length-completed.length}</b> em andamento</p><p><b>${filtered.filter(d=>d.alerts.length).length}</b> entregas precisam de atenção</p>`;
-$('comparison').innerHTML=[...new Set(filtered.map(d=>d.carrier))].map(c=>{let ds=completed.filter(d=>d.carrier===c),v=ds.length?100*ds.filter(d=>d.delivered<=d.deadline).length/ds.length:null;return `<div>${esc(c)} <b>${fmt(v,'%')}</b><div class="bar" style="width:${v||0}%"></div></div>`}).join('')||'<p>Sem dados no período.</p>';
-let search=$('search').value.toLowerCase();$('rows').innerHTML=filtered.filter(d=>(d.code+' '+d.client).toLowerCase().includes(search)).map(d=>`<tr><td><b>${esc(d.code)}</b><br>${esc(d.client)}</td><td>${esc(d.destination)}<br><small>${esc(d.carrier)}</small></td><td>${date(d.deadline)}</td><td><span class="badge ${d.alerts.length?'warning':''}">${esc(d.status)}</span>${d.alerts.length?'<br><small>⚠ '+d.alerts.length+' alerta(s)</small>':''}</td><td><button data-detail="${d.id}">Abrir</button></td></tr>`).join('')||'<tr><td colspan="5">Nenhuma entrega encontrada.</td></tr>';
-$('alertlist').innerHTML=filtered.flatMap(d=>d.alerts.map(a=>`<div class="alert"><b>${esc(d.code)} · ${esc(a)}</b><p>${esc(d.carrier)} → ${esc(d.destination)}</p><p class="muted">${a==='Entrega atrasada'?'Contatar a transportadora e verificar o motivo.':a.startsWith('Sem')?'Solicitar atualização do transporte.':'Investigar a ocorrência e registrar a tratativa.'}</p><button data-detail="${d.id}">Consultar histórico</button></div>`)).join('')||'<p>Nenhum alerta ativo neste filtro.</p>'}
-function openModal(html){$('modalbody').innerHTML=html;$('formerror').textContent='';$('modal').showModal()}
-function detail(id){let d=all.find(d=>d.id===id);openModal(`<h2>${esc(d.code)}</h2><p>${esc(d.client)} · ${esc(d.origin)} → ${esc(d.destination)}</p><p>Prazo: ${date(d.deadline)}</p>${d.events.map(e=>`<div class="event"><b>${esc(e.kind)}</b> · ${date(e.time)}<br>${esc(e.location)}<p class="muted">${esc(e.note)}</p></div>`).join('')}${d.delivered?'<p class="badge">Entrega concluída</p>':`<h3>Registrar evento</h3><form id="eventform"><input name="delivery_id" type="hidden" value="${d.id}"><div class="grid"><label>Evento<select name="kind">${['Em trânsito','Saiu para entrega','Entregue','Avaria','Extravio','Tentativa sem sucesso'].map(t=>`<option>${t}</option>`).join('')}</select></label><label>Data e hora<input name="time" type="datetime-local" value="${localNow()}" required></label><label>Local<input name="location" maxlength="300" required></label><label>Observação<textarea name="note" maxlength="1000"></textarea></label></div><button>Salvar evento</button></form>`}`);$('eventform')?.addEventListener('submit',e=>submit(e,'/api/events'))}
-async function submit(e,url){e.preventDefault();let button=e.target.querySelector('button');button.disabled=true;try{let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.target)))}),data=await r.json();if(!r.ok)throw Error(data.error);$('modal').close();await load()}catch(err){$('formerror').textContent=err.message}finally{button.disabled=false}}
-$('new').onclick=()=>{openModal(`<h2>Cadastrar entrega</h2><form id="deliveryform"><div class="grid">${[['code','Código de rastreio'],['client','Cliente'],['origin','Origem'],['destination','Destino'],['carrier','Transportadora'],['collected','Coleta'],['deadline','Prazo de entrega']].map(([k,l])=>`<label>${l}<input name="${k}" ${['collected','deadline'].includes(k)?'type="datetime-local"':'maxlength="300"'} required></label>`).join('')}</div><button>Salvar entrega</button></form>`);$('deliveryform').onsubmit=e=>submit(e,'/api/deliveries')};
-$('close').onclick=()=>$('modal').close();document.addEventListener('click',e=>{if(e.target.dataset.detail)detail(Number(e.target.dataset.detail));if(e.target.dataset.page){page=e.target.dataset.page;document.querySelectorAll('main>section').forEach(s=>s.hidden=s.id!==page);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page))}});['carrier','start','end'].forEach(id=>$(id).onchange=render);$('search').oninput=render;$('refresh').onclick=load;
-$('export').onclick=()=>{let cols=['code','client','origin','destination','carrier','collected','deadline','status','delivered'];let quote=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';let csv='\ufeff'+[['Código','Cliente','Origem','Destino','Transportadora','Coleta','Prazo','Situação','Entrega'],...filtered.map(d=>cols.map(c=>d[c]))].map(r=>r.map(quote).join(';')).join('\r\n');let a=document.createElement('a'),url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.href=url;a.download='entregas.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};load();
-</script></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LogiMonitor • Operação logística</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip" href="#main">Pular para o conteúdo</a>
+<header class="top">
+  <div class="topbar">
+    <h1 class="brand"><span class="logo" aria-hidden="true">◈</span> LogiMonitor</h1>
+    <nav id="tabs" class="segmented" role="tablist" aria-label="Seções do sistema">
+      <button role="tab" id="tab-dashboard" data-page="dashboard" aria-selected="true">Visão geral</button>
+      <button role="tab" id="tab-deliveries" data-page="deliveries" aria-selected="false">Entregas</button>
+      <button role="tab" id="tab-alerts" data-page="alerts" aria-selected="false">Alertas <span id="alertcount" class="count" hidden></span></button>
+      <button role="tab" id="tab-concepts" data-page="concepts" aria-selected="false">Conceitos</button>
+    </nav>
+    <div class="top-right">
+      <span id="updated" class="updated"></span>
+      <label class="switch" title="Atualizar os dados a cada 60 segundos"><input type="checkbox" id="auto" checked><span>Automático</span></label>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div id="notice" class="notice" role="alert" hidden></div>
+
+  <div class="pagehead">
+    <div>
+      <h2 id="pagetitle">Visão da operação</h2>
+      <p id="pagesub" class="lead">Visibilidade para decidir. Rastreabilidade para agir.</p>
+    </div>
+    <form id="filters" class="filters" autocomplete="off">
+      <label>Transportadora
+        <select id="carrier"><option value="">Todas</option></select>
+      </label>
+      <label>Coleta a partir de <input id="start" type="date"></label>
+      <label>Coleta até <input id="end" type="date"></label>
+      <button type="button" id="refresh" class="ghost">Atualizar</button>
+      <button type="button" id="clear" class="link" hidden>Limpar filtros</button>
+      <span id="filterinfo" class="filterinfo"></span>
+    </form>
+  </div>
+
+  <section id="dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
+    <div id="health"></div>
+    <div id="cards" class="cards"></div>
+
+    <div class="panel livepanel">
+      <div class="panel-head">
+        <h3>Entregas ao vivo <span class="live"><i aria-hidden="true"></i>Ao vivo</span></h3>
+        <div class="legend" aria-hidden="true"><span><i class="good"></i>no ritmo</span><span><i class="warn"></i>acima do previsto no trecho</span><span><i class="bad"></i>atrasada</span><span><i class="move"></i>em movimento</span></div>
+      </div>
+      <div id="livemap" class="livemap scroll"></div>
+      <p id="livesummary" class="live-summary"></p>
+    </div>
+
+    <div class="split">
+      <div class="panel assistant" id="assistant">
+        <div class="panel-head"><h3>✦ Assistente de insights</h3>
+          <div class="carousel-nav">
+            <button type="button" class="icon" id="assistprev" aria-label="Insight anterior">‹</button>
+            <span id="assistpos" class="muted small"></span>
+            <button type="button" class="icon" id="assistnext" aria-label="Próximo insight">›</button>
+            <button type="button" class="icon" id="assistpause" aria-label="Pausar a troca automática" aria-pressed="false">❚❚</button>
+          </div>
+        </div>
+        <div id="assistcard" class="assist-card"></div>
+        <div id="assistprogress" class="progress" aria-hidden="true"></div>
+        <div class="assist-foot">
+          <div id="assistdots" class="dots" role="group" aria-label="Escolher insight"></div>
+          <p id="assistfoot" class="muted small"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Onde as entregas atrasam</h3><span class="muted">pontos do trajeto</span></div>
+        <div id="bottlenecks"></div>
+      </div>
+    </div>
+
+    <div class="split equal">
+      <div class="panel">
+        <div class="panel-head"><h3>Transportadoras</h3><span class="muted">ordenadas por OTD</span></div>
+        <div id="scorecard" class="scroll"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Pontualidade por dia</h3><span class="muted">% no prazo · tracejado = meta</span></div>
+        <div id="trend"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="deliveries" role="tabpanel" aria-labelledby="tab-deliveries" hidden>
+    <div class="toolbar">
+      <label class="search"><span class="sr-only">Buscar código, cliente ou destino</span><input id="search" type="search" placeholder="Buscar código, cliente ou destino"></label>
+      <button type="button" id="new">+ Cadastrar entrega</button>
+      <button type="button" id="export" class="ghost">Exportar CSV</button>
+    </div>
+    <div id="chips" class="chips" role="group" aria-label="Filtrar por situação"></div>
+    <div class="panel scroll">
+      <table>
+        <thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / transportadora</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="alerts" role="tabpanel" aria-labelledby="tab-alerts" hidden>
+    <div id="alerttiles" class="tiles" role="group" aria-label="Filtrar por tipo de alerta"></div>
+    <p id="playbook" class="playbook" hidden></p>
+    <div class="alert-layout">
+      <div id="alertlist" class="panel alert-list"></div>
+      <aside class="panel">
+        <div class="panel-head"><h3>Cobrar por transportadora</h3></div>
+        <p class="muted small">Uma mensagem só, com todas as pendências da transportadora.</p>
+        <div id="carrieralerts"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="concepts" role="tabpanel" aria-labelledby="tab-concepts" hidden>
+    <div class="panel">
+      <h3>Como ler o painel</h3>
+      <ul class="guide">
+        <li><b>Cores:</b> verde = dentro da meta, amarelo = atenção, vermelho = fora da meta. Cada cor vem acompanhada de um texto.</li>
+        <li><b>Indicadores clicáveis:</b> clique em um indicador para ver as entregas que o compõem.</li>
+        <li><b>Prioridade:</b> alertas críticos aparecem primeiro; no mesmo nível, as entregas mais atrasadas vêm antes.</li>
+        <li><b>Atualização:</b> os alertas são recalculados a cada atualização (automática a cada 60 s ou pelo botão).</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Indicadores</h3>
+      <p><b>OTD (On-Time Delivery):</b> entregas concluídas até o prazo ÷ entregas concluídas × 100. Pendentes não entram no denominador. Sem entregas concluídas, o resultado é “—”.</p>
+      <p><b>Tempo médio de entrega:</b> média das horas corridas entre coleta e entrega das entregas concluídas (inclui fins de semana). É comparado ao prazo prometido médio dessas mesmas entregas.</p>
+      <p><b>Entregas em atraso:</b> entregas ainda não concluídas cujo prazo já venceu.</p>
+      <p><b>Taxa de ocorrências:</b> entregas com ao menos um evento de avaria, extravio ou tentativa sem sucesso ÷ todas as entregas do filtro × 100. Cada entrega conta uma vez.</p>
+      <p><b>Atraso médio:</b> média de horas além do prazo, apenas nas entregas concluídas fora do prazo.</p>
+    </div>
+    <div class="panel">
+      <h3>Metas e semáforo</h3>
+      <p class="muted">Parâmetros didáticos definidos pelo grupo. Alteram-se em <code>TARGETS</code>, no arquivo <code>app.py</code>.</p>
+      <div id="targets" class="scroll"></div>
+    </div>
+    <div class="panel">
+      <h3>Alertas</h3>
+      <div id="alertrules" class="scroll"></div>
+      <p>Alertas existem apenas para entregas em andamento e desaparecem ao registrar “Entregue”. Uma ocorrência permanece em aberto até ser registrada a <b>Ocorrência tratada</b> ou até a conclusão da entrega.</p>
+    </div>
+    <div class="panel">
+      <h3>Trajeto e gargalos</h3>
+      <p>Cada destino tem uma rota planejada a partir do CD de Recife, com o tempo previsto de cada trecho (dados fictícios). Ao abrir uma entrega, o sistema compara o tempo real de cada trecho com o previsto. Diferenças de até 2 h são consideradas dentro do previsto.</p>
+      <div id="routesinfo" class="scroll"></div>
+      <p><b>Maior atraso da entrega:</b> o trecho com mais horas além do previsto. <b>Gargalo da operação:</b> o ponto do trajeto que soma mais horas além do previsto em todas as entregas. <b>Previsão de chegada:</b> momento do último registro mais o tempo previsto dos trechos que faltam; se o trecho atual já passou do previsto, considera que a carga sai agora.</p>
+    </div>
+    <div class="panel">
+      <h3>Assistente de insights</h3>
+      <p>O assistente lê as entregas do filtro e escreve uma análise com até 6 recomendações, da mais urgente para a menos urgente. <b>Não é inteligência artificial:</b> cada insight vem de uma regra analítica explícita, em <code>assistant.py</code>, então o resultado pode ser conferido nas outras telas.</p>
+      <div class="scroll"><table><thead><tr><th>Regra</th><th>O que verifica</th><th>Para que serve na decisão</th></tr></thead><tbody>
+        <tr><td>Atrasos por destino</td><td>50% ou mais dos atrasos em um mesmo destino</td><td>Separar problema de rota de problema de transportadora</td></tr>
+        <tr><td>Atrasos por transportadora</td><td>Fatia de atrasos 15 pontos acima da fatia de volume</td><td>Identificar falha de nível de serviço de um fornecedor</td></tr>
+        <tr><td>Ocorrências travando entregas</td><td>Ocorrências sem tratativa e quantas já estão atrasadas</td><td>Priorizar as tratativas que destravam entregas</td></tr>
+        <tr><td>Risco de atraso</td><td>Prazo vence em breve e a entrega não saiu</td><td>Agir antes do atraso (gestão preventiva)</td></tr>
+        <tr><td>Rastreabilidade</td><td>Entregas sem atualização, por transportadora</td><td>Cobrar registro de movimentação</td></tr>
+        <tr><td>Simulação de transportadora</td><td>OTD geral se a pior tivesse a pontualidade da melhor</td><td>Avaliar o ganho de redistribuir volume</td></tr>
+        <tr><td>Tendência</td><td>OTD dos últimos 3 dias contra os anteriores (variação de 10 pontos)</td><td>Detectar piora ou melhora recente</td></tr>
+        <tr><td>Prazo prometido</td><td>Tempo médio de entrega contra o prazo médio prometido</td><td>Decidir entre rever o prazo ou tratar exceções</td></tr>
+        <tr><td>Extravio</td><td>Extravio sem tratativa</td><td>Acionar transportadora e seguro</td></tr>
+      </tbody></table></div>
+      <p>O resumo no topo combina a situação geral com o insight mais urgente. A análise apoia a decisão; a confirmação dos fatos cabe ao gestor.</p>
+    </div>
+    <div class="panel">
+      <h3>Rastreabilidade</h3>
+      <p>O histórico registra o que aconteceu, quando e onde. A situação corresponde ao último evento. Eventos não podem estar no futuro nem antes do último registro, e uma entrega concluída não aceita novos eventos.</p>
+      <h3>Limitações</h3>
+      <p>Dados fictícios, sem GPS ou integração externa. Não há autenticação: o servidor aceita apenas conexões locais. Os eventos são informados manualmente e os horários são locais, sem conversão de fuso. A ferramenta apoia a decisão; a investigação operacional cabe ao usuário.</p>
+    </div>
+  </section>
+
+  <footer>
+    LogiMonitor · Projeto acadêmico com dados fictícios · Python + SQLite ·
+    <button type="button" id="reset" class="link">Restaurar dados de demonstração</button>
+  </footer>
+</main>
+
+<dialog id="modal" aria-labelledby="modaltitle">
+  <button type="button" id="close" class="close" aria-label="Fechar">✕</button>
+  <div id="modalbody"></div>
+  <p id="formerror" class="error" role="alert"></p>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
