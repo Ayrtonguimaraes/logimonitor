@@ -28,6 +28,7 @@ TARGETS = {
     'otif': {'label': 'No prazo e completo (OTIF)', 'good': 90, 'warn': 80, 'higher_is_better': True, 'unit': '%'},
     'otd': {'label': 'Entregas no prazo (OTD)', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
     'fill_rate': {'label': 'Fill rate (caixas atendidas)', 'good': 98, 'warn': 95, 'higher_is_better': True, 'unit': '%'},
+    'window': {'label': 'Entregas na janela do cliente', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
     'empties': {'label': 'Retorno de vasilhame', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
     'fefo': {'label': 'Aderência FEFO', 'good': 98, 'warn': 90, 'higher_is_better': True, 'unit': '%'},
     'incidents': {'label': 'Taxa de ocorrências', 'good': 5, 'warn': 10, 'higher_is_better': False, 'unit': '%'},
@@ -60,6 +61,22 @@ DEMO_SIZE = 60
 # Pontos de venda (PDVs) fictícios atendidos pela distribuidora.
 CLIENTS = ['Bar do Zé', 'Mercadinho Boa Vista', 'Conveniência Posto', 'Restaurante Maré', 'Empório Central',
            'Quiosque Beira-Mar', 'Adega São João', 'Supermercado Bom Preço Local']
+# Janela de recebimento de cada tipo de PDV (hora de início, hora de fim), dados fictícios.
+WINDOWS = {'Bar do Zé': (9, 13), 'Mercadinho Boa Vista': (6, 11), 'Conveniência Posto': (7, 19), 'Restaurante Maré': (8, 11),
+           'Empório Central': (8, 16), 'Quiosque Beira-Mar': (7, 10), 'Adega São João': (10, 18),
+           'Supermercado Bom Preço Local': (5, 10)}
+WINDOW_CLOSING_HOURS = 1   # janela fecha em até X horas e o pedido ainda não chegou
+
+
+def client_window(client):
+    """Janela do PDV pelo nome (sem o número do pedido). None quando o cliente não tem janela cadastrada."""
+    return WINDOWS.get(client.rsplit(' ', 1)[0]) or WINDOWS.get(client)
+
+
+def in_window(moment, window):
+    return window[0] <= moment.hour < window[1]
+
+
 # Produtos (SKUs) e lotes fictícios do CD. Validade em dias a partir de hoje; FEFO = primeiro que vence, primeiro que sai.
 SKUS = {'PIL350': 'Pilsen lata 350 ml (cx 12)', 'LN355': 'Long neck 355 ml (cx 24)',
         'G600': 'Garrafa 600 ml retornável (cx 24)', 'BAR30': 'Barril chope 30 L'}
@@ -181,6 +198,10 @@ def initialize():
                 if 'delay' in case and case['delay'][0] == location and kind == 'Em rota':
                     hours += case['delay'][1]
                 moment += timedelta(hours=hours)
+                window = WINDOWS[CLIENTS[i % len(CLIENTS)]]
+                if kind == 'Entregue' and i % 7 and not in_window(moment, window):  # roteirizado para a janela
+                    day = moment if moment.hour < window[0] else moment + timedelta(days=1)
+                    moment = day.replace(hour=window[0], minute=(i * 11) % 60)
                 if moment > base:
                     break  # ainda em trânsito: os próximos eventos não aconteceram
                 add_event(con, did, stamp(moment), kind, location, SEED_NOTES[kind])
@@ -436,7 +457,8 @@ def analyze(row, history, current):
                open_incident=open_incident, open_loss=open_loss,
                alerts=[], alert_details=[], on_time=None, lead_hours=None,
                delay_hours=0, overdue_hours=0, hours_to_deadline=None, priority=0,
-               fill_rate=None, complete=None, otif=None, empties_out=0, empties_in=0)
+               fill_rate=None, complete=None, otif=None, empties_out=0, empties_in=0,
+               window=client_window(row['client']), in_window=None)
     row['route'] = trajectory(row, history, current)
     if delivered:
         delivered_at = datetime.fromisoformat(delivered)
@@ -444,6 +466,7 @@ def analyze(row, history, current):
         row['on_time'] = delivered_at <= deadline
         if not row['on_time']:
             row['delay_hours'] = round(hours_between(deadline, delivered_at), 1)
+        row['in_window'] = None if row['window'] is None else in_window(delivered_at, row['window'])
         ordered = sum(i['qty_ordered'] for i in row['items'])
         served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for i in row['items'])
         row['fill_rate'] = round(100 * served / ordered, 1) if ordered else None
@@ -470,6 +493,16 @@ def analyze(row, history, current):
             alert('risk', 'warning', 'Risco de atraso', ACTIONS['risk'])
     if current - datetime.fromisoformat(history[-1]['time']) > timedelta(hours=STALE_HOURS):
         alert('stale', 'warning', f'Sem atualização há mais de {STALE_HOURS}h', ACTIONS['stale'])
+    if row['window'] and row['status'] in ('Saiu para o cliente', 'Em rota', 'Carregado'):
+        start, end = row['window']
+        closing = current.replace(hour=end, minute=0, second=0)
+        if row['status'] == 'Saiu para o cliente' and start <= current.hour < end \
+                and hours_between(current, closing) <= WINDOW_CLOSING_HOURS:
+            alert('window', 'high', 'Janela do cliente fechando',
+                  f'O PDV recebe até {end}h: confirmar com o motorista se chega a tempo ou reagendar.')
+        elif row['status'] == 'Saiu para o cliente' and not in_window(current, row['window']):
+            alert('window', 'warning', 'Cliente fora da janela de recebimento',
+                  f'O PDV recebe das {start}h às {end}h: reprogramar a entrega para a próxima janela.')
     if open_incident:
         alert('incident', 'critical' if open_loss else 'high', 'Ocorrência: verificar histórico',
               ACTIONS['loss'] if open_loss else ACTIONS['incident'])
@@ -512,6 +545,8 @@ def compute_kpis(deliveries):
     served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for d in completed for i in d['items'])
     items = [i for d in deliveries for i in d['items']]
     fefo_ok = sum(1 for i in items if i['fefo_ok'])
+    windowed = [d for d in completed if d['in_window'] is not None]
+    hit = sum(1 for d in windowed if d['in_window'])
     out = sum(d['empties_out'] for d in completed)
     back = sum(d['empties_in'] for d in completed)
 
@@ -522,6 +557,8 @@ def compute_kpis(deliveries):
         total=total, completed=n, in_progress=total - n, punctual=punctual, otif_count=otif,
         otif=round(100 * otif / n, 1) if n else None,
         boxes_ordered=ordered, boxes_served=served, fill_rate=round(100 * served / ordered, 1) if ordered else None,
+        window_hit=hit, window_total=len(windowed), window_closing=count('window'),
+        window=round(100 * hit / len(windowed), 1) if windowed else None,
         empties_out=out, empties_in=back, empties_pending=out - back,
         empties=round(100 * back / out, 1) if out else None,
         items=len(items), fefo_ok=fefo_ok, fefo=round(100 * fefo_ok / len(items), 1) if items else None,
@@ -540,6 +577,7 @@ def compute_kpis(deliveries):
         fill_rate=target_level('fill_rate', result['fill_rate']),
         fefo=target_level('fefo', result['fefo']),
         empties=target_level('empties', result['empties']),
+        window=target_level('window', result['window']),
         average_hours=level(result['average_hours'], planned, planned * 1.25, False) if n else None,
         late=target_level('late', result['late']) if total else None,
         incidents=target_level('incidents', result['incidents']))
@@ -562,7 +600,7 @@ def scorecards(deliveries):
 def health(kpis):
     if not kpis['total']:
         return {'level': None, 'label': 'Sem dados', 'message': 'Nenhuma entrega no filtro selecionado.'}
-    names = {'otif': 'OTIF', 'fill_rate': 'fill rate', 'fefo': 'FEFO', 'empties': 'retorno de vasilhame', 'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
+    names = {'otif': 'OTIF', 'fill_rate': 'fill rate', 'fefo': 'FEFO', 'empties': 'retorno de vasilhame', 'window': 'janela do cliente', 'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
     bad = [names[k] for k, v in kpis['levels'].items() if v == 'bad']
     warn = [names[k] for k, v in kpis['levels'].items() if v == 'warn']
     if bad:

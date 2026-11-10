@@ -253,6 +253,17 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual((data["kpis"]["empties_out"],data["kpis"]["empties_in"],data["kpis"]["empties"]),(20,4,20.0))
         self.assertEqual(data["empties_balance"][0]["pending"],16)
         self.assertIn("empties",self.codes("V2"))
+    def test_receiving_window_kpi(self):
+        self.assertEqual(app.client_window("Bar do Zé 07"),(9,13))
+        self.assertIsNone(app.client_window("Teste"))
+        for code,hour in (("J1",10),("J2",15)):
+            did=self.custom(code,60,30)
+            with app.session() as con:
+                con.execute("UPDATE deliveries SET client=? WHERE id=?",("Bar do Zé 01",did))
+            when=(app.now()-timedelta(days=1)).replace(hour=hour,minute=0)
+            self.event(did,"Entregue",when)
+        k=app.snapshot()["kpis"]
+        self.assertEqual((k["window_hit"],k["window_total"],k["window"]),(1,2,50.0))
     def test_demo_lots_flag_expiry(self):
         app.reset_demo()
         data=app.snapshot()
@@ -266,7 +277,7 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual(k['total'],app.DEMO_SIZE)
         self.assertGreaterEqual(k['otd'],95)
         self.assertLessEqual(k['late'],3)
-        self.assertLessEqual(k['attention'],6)
+        self.assertLessEqual(k['attention'],10)  # inclui alertas de vasilhame e de janela, que dependem da hora
         flagged=[d for d in data['deliveries'] if d['alert_details'] or (d['delivered'] and not d['on_time'])]
         self.assertTrue(flagged)
         self.assertTrue(all(d['diagnosis'] and d['diagnosis']['where'] and d['diagnosis']['actions'] for d in flagged))
