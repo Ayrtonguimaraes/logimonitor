@@ -119,6 +119,7 @@ function render() {
     renderInsights(data);
     renderCards(data);
     renderScorecard(data);
+    renderStock(data);
     renderTrend(data);
     renderBottlenecks(data);
     renderLiveMap(data);
@@ -210,7 +211,7 @@ function assistDrill(index) {
 
 const KPI_CARDS = (k, T) => [
     {key: 'otif', title: 'No prazo e completo (OTIF)', value: fmtNum(k.otif, '%'), level: k.levels.otif, meta: `meta ≥ ${T.otif.good}%`,
-     plain: k.otif === null ? 'nenhum pedido entregue ainda' : `≈ ${fmtNum(k.otif / 10)} de cada 10 pedidos chegam no prazo e sem faltar nada`},
+     plain: k.otif === null ? 'nenhum pedido avaliável neste filtro' : `≈ ${fmtNum(k.otif / 10)} de cada 10 pedidos avaliáveis chegam no prazo e sem faltar nada`},
     {key: 'avg', title: 'Tempo médio de entrega', value: fmtNum(k.average_hours, ' h'), level: k.levels.average_hours,
      meta: k.planned_hours === null ? 'sem entregas concluídas' : `prazo médio ${fmtNum(k.planned_hours, ' h')}`,
      plain: k.average_hours === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.average_hours / 24)} dias da coleta à entrega`},
@@ -356,13 +357,25 @@ function renderScorecard({carriers, targets: T}) {
     if (!carriers.length) { $('scorecard').innerHTML = '<p class="empty">Sem dados no filtro.</p>'; return; }
     const goal = T.otd.good;
     $('scorecard').innerHTML = `<table class="compact"><thead><tr><th>Frota</th><th>OTD</th>
-        <th class="num">Atrasos</th><th class="num">Ocorr.</th></tr></thead><tbody>${carriers.map(c => `<tr>
+        <th class="num">OTIF</th><th class="num">NIF</th><th class="num">NOT</th><th class="num">Avaliáveis</th><th class="num">Atrasos</th><th class="num">Ocorr.</th></tr></thead><tbody>${carriers.map(c => `<tr>
         <td><button type="button" class="name" data-carrier="${esc(c.carrier)}">${esc(c.carrier)}</button></td>
         <td><div class="otd"><b class="lv-text-${c.levels.otd || 'none'}">${fmtNum(c.otd, '%')}</b>
             <span class="bar lv-${c.levels.otd || 'none'}" aria-hidden="true"><i style="width:${c.otd || 0}%"></i><span class="tick" style="left:${goal}%"></span></span>
             <span class="sr-only">${LEVEL_TEXT[c.levels.otd] || 'Sem dados'}</span></div></td>
+        <td class="num">${fmtNum(c.otif, '%')}</td><td class="num">${fmtNum(c.nif, '%')}</td>
+        <td class="num">${fmtNum(c.not_on_time, '%')}</td><td class="num">${c.service_eligible}/${c.completed}</td>
         <td class="num">${c.late}</td><td class="num">${fmtNum(c.incidents, '%')}</td></tr>`).join('')}</tbody></table>
-        <p class="muted small">Traço na barra = meta de ${goal}%. Clique no nome para filtrar.</p>`;
+        <p class="muted small">Traço na barra = meta de ${goal}%. Avaliáveis: entregas com itens e quantidades confirmadas sobre o total concluído. Clique no nome para filtrar.</p>`;
+}
+
+function renderStock({lots, kpis}) {
+    const expiring = lots.filter(lot => lot.level !== 'good');
+    $('stock').innerHTML = `<p>Aderência FEFO nos pedidos do filtro: <b>${fmtNum(kpis.fefo, '%')}</b>.</p>
+        <p class="muted small">Os lotes a vencer refletem o estoque do CD.</p>
+        ${expiring.length ? `<div class="scroll"><table class="compact"><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Saldo</th></tr></thead><tbody>
+        ${expiring.map(lot => `<tr><td>${esc(lot.product)}</td><td><button type="button" class="name" data-lot="${esc(lot.lot)}">${esc(lot.lot)}</button></td>
+            <td>${levelPill(lot.level)} ${lot.days_left} dias</td><td>${lot.stock}</td></tr>`).join('')}
+        </tbody></table></div>` : '<p class="empty">Nenhum lote próximo do vencimento.</p>'}`;
 }
 
 function renderTrend({trend, targets: T}) {
@@ -420,7 +433,8 @@ function renderTable() {
     const search = $('search').value.trim().toLowerCase();
     const test = CHIPS.find(c => c[0] === state.chip)[2];
     const list = state.data.deliveries.filter(test)
-        .filter(d => `${d.code} ${d.client} ${d.destination}`.toLowerCase().includes(search)).sort(byPriority);
+        .filter(d => `${d.code} ${d.client} ${d.destination}`.toLowerCase().includes(search)
+            || d.items.some(item => item.lot.toLowerCase().includes(search))).sort(byPriority);
     $('rows').innerHTML = list.map(rowHtml).join('') || '<tr><td colspan="6" class="empty">Nenhuma entrega encontrada para este filtro.</td></tr>';
 }
 
@@ -509,8 +523,15 @@ function listHtml(list) {
         <tbody>${[...list].sort(byPriority).map(rowHtml).join('')}</tbody></table>`;
 }
 
+const SERVICE_GROUPS = {
+    'otif-ok': 'No prazo e completo',
+    'nif-only': 'No prazo, mas incompleto',
+    'not-only': 'Atrasado, mas completo',
+    'nif-not': 'Atrasado e incompleto',
+};
+
 const DRILLS = {
-    otif: ['Pedidos fora do OTIF', 'Entregues com atraso ou com falta de caixas: são eles que puxam o OTIF para baixo.', d => d.delivered && !d.otif],
+    otif: ['Pedidos fora do OTIF', 'Entregues com atraso ou com falta de caixas: são eles que puxam o OTIF para baixo.', d => d.otif === false],
     avg: ['Entregas concluídas', 'Entregas usadas no cálculo do tempo médio.', d => d.delivered],
     late: ['Entregas em atraso', 'Da mais crítica para a menos crítica.', d => hasAlert(d, 'late')],
     window: ['Fora da janela ou em risco', 'Entregues fora do horário de recebimento e pedidos em rota com a janela fechando.', d => d.in_window === false || hasAlert(d, 'window')],
@@ -569,22 +590,16 @@ function explainHtml(key) {
             </tbody></table><p class="muted small">Acima de ${state.data.rules.empties_limit} em aberto, os próximos pedidos do cliente recebem o alerta “Recolher vasilhame”.</p>` : '<p class="muted">Nenhum cliente com vasilhame em aberto.</p>'}`;
     }
     if (key === 'otif') {
-        if (k.otif === null) return '<p>Ainda não há pedidos entregues neste filtro.</p>';
-        const on = Math.round(k.otif / 10);
-        const expiring = state.data.lots.filter(l => l.level !== 'good');
-        return `${picto(on)}<p>De cada 10 pedidos entregues, cerca de <b>${on}</b> chegaram <b>no prazo</b> e <b>completos</b>
-            (todas as caixas pedidas). Basta atrasar <i>ou</i> faltar uma caixa para o pedido sair do OTIF.</p>
-            <p class="formula">${k.otif_count} no prazo e completos ÷ ${k.completed} entregues × 100 = <b>${fmtNum(k.otif, '%')}</b></p>
-            <h3>De onde vem o OTIF</h3>
-            <table><thead><tr><th>Indicador</th><th>Conta</th><th>Valor</th><th>Meta</th></tr></thead><tbody>
-            <tr><td>No prazo (OTD)</td><td>${k.punctual} ÷ ${k.completed} entregues</td><td>${fmtNum(k.otd, '%')}</td><td>${levelPill(k.levels.otd)} ≥ ${T.otd.good}%</td></tr>
-            <tr><td>Fill rate (caixas atendidas)</td><td>${k.boxes_served} ÷ ${k.boxes_ordered} caixas</td><td>${fmtNum(k.fill_rate, '%')}</td><td>${levelPill(k.levels.fill_rate)} ≥ ${T.fill_rate.good}%</td></tr>
-            <tr><td>Aderência FEFO</td><td>${k.fefo_ok} ÷ ${k.items} itens do lote que vence primeiro</td><td>${fmtNum(k.fefo, '%')}</td><td>${levelPill(k.levels.fefo)} ≥ ${T.fefo.good}%</td></tr>
-            </tbody></table>
-            <h3>Lotes vencendo no CD (${expiring.length})</h3>
-            ${expiring.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Estoque</th></tr></thead><tbody>
-            ${expiring.map(l => `<tr><td>${esc(l.product)}</td><td>${esc(l.lot)}</td><td>${levelPill(l.level)} ${l.days_left} dias</td><td>${l.stock} cx</td></tr>`).join('')}
-            </tbody></table><p class="muted small">FEFO: priorizar estes lotes nas próximas cargas.</p>` : '<p class="muted">Nenhum lote vence nos próximos ' + state.data.expiry_rules.warn_days + ' dias.</p>'}`;
+        const coverage = `<p class="muted">${k.service_eligible} de ${k.completed} entregas tinham itens e quantidades confirmadas. O período usa a data de carregamento.</p>`;
+        if (k.otif === null) return coverage + '<p>Sem entregas avaliáveis neste filtro.</p>';
+        return `${coverage}
+            <p class="formula">${k.otif_count} no prazo e completas ÷ ${k.service_eligible} avaliáveis × 100 = <b>${fmtNum(k.otif, '%')}</b></p>
+            <p><b>NIF · Incompletos:</b> ${k.nif_count} ÷ ${k.service_eligible} = ${fmtNum(k.nif, '%')}<br>
+            <b>NOT · Fora do prazo:</b> ${k.not_count} ÷ ${k.service_eligible} = ${fmtNum(k.not_on_time, '%')}</p>
+            <p class="muted">Pedidos atrasados e incompletos contam nas duas taxas. Abra um grupo para ver os pedidos.</p>
+            <div class="chips">${Object.entries(SERVICE_GROUPS).map(([key, label]) =>
+                `<button type="button" data-service-group="${key}">${label} (${k.service_groups[key] || 0})</button>`).join('')}</div>
+            <p class="muted">OTD geral: ${fmtNum(k.otd, '%')} (${k.punctual}/${k.completed}). Fill rate: ${fmtNum(k.fill_rate, '%')} (${k.boxes_served}/${k.boxes_ordered} unidades logísticas).</p>`;
     }
     if (key === 'otd') {
         if (k.otd === null) return '<p>Ainda não há entregas concluídas neste filtro.</p>';
@@ -712,13 +727,13 @@ function diagnosisHtml(d) {
 }
 
 function itemsHtml(d) {
-    if (!d.items.length) return '';
-    const fill = d.fill_rate === null ? '' : ` · fill rate ${fmtNum(d.fill_rate, '%')}${d.complete ? '' : ' <span class="dl late">entrega parcial</span>'}`;
+    if (!d.items.length) return d.delivered ? '<p class="muted">Completude sem dados: pedido sem itens registrados.</p>' : '';
+    const fill = d.fill_rate === null ? 'Completude sem dados' : ` · fill rate ${fmtNum(d.fill_rate, '%')}${d.complete ? '' : ' <span class="dl late">entrega parcial</span>'}`;
     return `<h3>Itens do pedido <small class="muted">${d.delivered ? fill : 'lote e validade'}</small></h3>
         <div class="scroll"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Pedido</th>${d.delivered ? '<th>Entregue</th>' : ''}</tr></thead><tbody>
         ${d.items.map(i => `<tr><td>${esc(i.product)}</td><td>${esc(i.lot)}${i.fefo_ok ? '' : ' <span class="dl late" title="Havia lote com validade mais curta no CD">fora do FEFO</span>'}</td>
-            <td>${new Date(i.expiry + 'T12:00').toLocaleDateString('pt-BR')}</td><td>${i.qty_ordered} cx</td>
-            ${d.delivered ? `<td>${i.qty_delivered ?? i.qty_ordered} cx</td>` : ''}</tr>`).join('')}</tbody></table></div>
+            <td>${new Date(i.expiry + 'T12:00').toLocaleDateString('pt-BR')}</td><td>${i.qty_ordered}</td>
+            ${d.delivered ? `<td>${i.qty_delivered ?? 'Sem dados'}</td>` : ''}</tr>`).join('')}</tbody></table></div>
         ${d.delivered && d.empties_out ? `<p class="muted small">Vasilhame: ${d.empties_out} entregues cheios, ${d.empties_in} recolhidos vazios${d.empties_in < d.empties_out ? ` · <span class="dl late">${d.empties_out - d.empties_in} ficaram no cliente</span>` : ''}.</p>` : ''}`;
 }
 
@@ -867,9 +882,11 @@ async function copyText(text, done) {
 }
 
 function exportCsv() {
-    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Frota', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'Alertas'];
+    const classification = value => value == null ? 'Sem dados' : value ? 'Sim' : 'Não';
+    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Frota', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'No prazo', 'Completo', 'Na janela', 'OTIF', 'Alertas'];
     const rows = state.data.deliveries.map(d => [d.code, d.client, d.origin, d.destination, d.carrier, d.collected, d.deadline,
-                                                  d.status, d.delivered, d.alerts.join(' | ')]);
+                                                  d.status, d.delivered, classification(d.on_time), classification(d.complete),
+                                                  classification(d.in_window), classification(d.otif), d.alerts.join(' | ')]);
     const quote = v => '"' + String(v ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""') + '"';
     const csv = '\ufeff' + [header, ...rows].map(r => r.map(quote).join(';')).join('\r\n');
     const link = document.createElement('a');
@@ -888,6 +905,16 @@ document.addEventListener('click', event => {
     if (ds.page) { setPage(ds.page); }
     else if (ds.detail) detail(Number(ds.detail));
     else if (ds.drill) drill(ds.drill);
+    else if (ds.serviceGroup) {
+        const list = state.data.deliveries.filter(d => d.service_group === ds.serviceGroup);
+        openModal(`<h2 id="modaltitle">${SERVICE_GROUPS[ds.serviceGroup]} (${list.length})</h2>
+            <button type="button" class="ghost" data-drill="otif">Voltar ao OTIF</button>
+            <div class="scroll">${listHtml(list)}</div>`);
+    }
+    else if (ds.lot) {
+        $('search').value = ds.lot;
+        go({view: 'deliveries'});
+    }
     else if (ds.assist) assistDrill(Number(ds.assist));
     else if (ds.spot) spotDrill(Number(ds.spot));
     else if (ds.assistGo) showInsight(Number(ds.assistGo), true);
