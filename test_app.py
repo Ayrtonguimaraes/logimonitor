@@ -43,18 +43,18 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual(data['kpis']['otd'],0)
         self.assertEqual(data['kpis']['average_hours'],47)
         self.assertEqual(data['deliveries'][0]['alerts'],[])
-        with self.assertRaises(ValueError): self.event(did,'Em trânsito',app.now())
+        with self.assertRaises(ValueError): self.event(did,'Em rota',app.now())
     def test_punctual_and_incidents_count_once(self):
         did=self.delivery()
         self.event(did,'Avaria',app.now()-timedelta(hours=46))
-        self.event(did,'Tentativa sem sucesso',app.now()-timedelta(hours=45))
+        self.event(did,'Cliente fechado',app.now()-timedelta(hours=45))
         self.event(did,'Entregue',app.now()-timedelta(hours=24))
         self.assertEqual(app.snapshot()['kpis']['otd'],100)
         self.assertEqual(app.snapshot()['kpis']['incidents'],100)
     def test_invalid_dates(self):
         did=self.delivery()
         with self.assertRaises(ValueError): self.event(did,'Entregue',app.now()+timedelta(hours=1))
-        with self.assertRaises(ValueError): self.event(did,'Em trânsito',app.now()-timedelta(hours=50))
+        with self.assertRaises(ValueError): self.event(did,'Em rota',app.now()-timedelta(hours=50))
         with self.assertRaises(ValueError):
             app.create_delivery(dict(code='X',client='X',origin='X',destination='X',carrier='X',collected=app.stamp(app.now()),deadline=app.stamp(app.now()-timedelta(hours=1))))
     def test_persistence_and_empty_filter(self):
@@ -66,11 +66,11 @@ class LogisticsTests(unittest.TestCase):
 
     def test_risk_alert_only_before_leaving_for_delivery(self):
         did=self.custom('RISK',60,6)
-        self.event(did,'Em trânsito',app.now()-timedelta(hours=1))
+        self.event(did,'Em rota',app.now()-timedelta(hours=1))
         self.assertEqual(self.codes('RISK'),['risk'])
         self.assertEqual(app.snapshot()['kpis']['at_risk'],1)
         self.assertEqual(app.snapshot()['kpis']['late'],0)
-        self.event(did,'Saiu para entrega',app.now()-timedelta(minutes=30))
+        self.event(did,'Saiu para o cliente',app.now()-timedelta(minutes=30))
         self.assertEqual(self.codes('RISK'),[])
         self.custom('FAR',10,60)
         self.assertEqual(self.codes('FAR'),[])
@@ -81,7 +81,7 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual(details['SEVERE']['alert_details'][0]['severity'],'critical')
         self.assertEqual(details['MILD']['alert_details'][0]['severity'],'high')
         self.assertGreater(details['SEVERE']['priority'],details['MILD']['priority'])
-        self.event(mild,'Extravio',app.now()-timedelta(hours=1))
+        self.event(mild,'Falta na carga',app.now()-timedelta(hours=1))
         incident=[a for a in next(d for d in app.snapshot()['deliveries'] if d['code']=='MILD')['alert_details'] if a['code']=='incident'][0]
         self.assertEqual(incident['severity'],'critical')
     def test_treated_incident_closes_alert_but_keeps_rate(self):
@@ -95,7 +95,7 @@ class LogisticsTests(unittest.TestCase):
     def test_api_filters_scorecard_and_ranking(self):
         a=self.custom('A1',60,-1,'Alfa'); b=self.custom('B1',60,-1,'Beta')
         self.event(a,'Entregue',app.now()-timedelta(minutes=30))
-        self.event(b,'Em trânsito',app.now()-timedelta(hours=1))
+        self.event(b,'Em rota',app.now()-timedelta(hours=1))
         self.assertEqual(app.snapshot(carrier='Alfa')['kpis']['total'],1)
         data=app.snapshot()
         self.assertEqual([c['carrier'] for c in data['carriers']],['Alfa','Beta'])
@@ -113,7 +113,7 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual(empty['assistant']['insights'],[])
         self.assertIn('Não há entregas',empty['assistant']['resumo'])
         did=self.custom('OK',30,40)
-        self.event(did,'Em trânsito',app.now()-timedelta(hours=1))
+        self.event(did,'Em rota',app.now()-timedelta(hours=1))
         self.assertEqual(self.titles(),['Operação sob controle'])
         for i in range(4): self.custom(f'LATE{i}',100,-80)
         data=app.snapshot()
@@ -133,7 +133,7 @@ class LogisticsTests(unittest.TestCase):
         sim=next(i for i in data['assistant']['insights'] if i['titulo'].startswith('Simulação'))
         self.assertIn('66,7% para 100%',sim['titulo'])
         self.assertIn('já alcançaria a meta',sim['analise'])
-        self.assertEqual(sim['transportadora'],'Beta')
+        self.assertEqual(sim['frota'],'Beta')
     def test_assistant_links_open_incidents_to_delays(self):
         did=self.custom('INC',100,-80)
         self.event(did,'Avaria',app.now()-timedelta(hours=90))
@@ -157,8 +157,8 @@ class LogisticsTests(unittest.TestCase):
         return next(d for d in app.snapshot()['deliveries'] if d['code']==code)['route']
     def test_trajectory_compares_each_leg_with_plan(self):
         did=self.routed('TRIP',60,12)
-        self.move(did,'Em trânsito',50,'Hub Recife/PE')        # 10 h contra 8 h previstas
-        self.move(did,'Em trânsito',40,'Hub João Pessoa/PB')   # 10 h contra 10 h previstas
+        self.move(did,'Em rota',50,'Hub Recife/PE')        # 10 h contra 8 h previstas
+        self.move(did,'Em rota',40,'Hub João Pessoa/PB')   # 10 h contra 10 h previstas
         r=self.route_of('TRIP')
         self.assertEqual([s['status'] for s in r['stops']],['done','done','done','current','planned'])
         self.assertEqual([s['excess_hours'] for s in r['stops'][1:3]],[2,0])
@@ -175,14 +175,14 @@ class LogisticsTests(unittest.TestCase):
         self.assertIsNone(r['eta'])
         self.assertIsNone(r['bottleneck'])
         did=self.custom('NOPLAN',30,40)
-        self.event(did,'Em trânsito',app.now()-timedelta(hours=20))
+        self.event(did,'Em rota',app.now()-timedelta(hours=20))
         r=self.route_of('NOPLAN')
         self.assertFalse(r['has_plan'])
         self.assertEqual(r['bottleneck']['label'],'Natal')     # trecho mais longo: parada atual
         self.assertEqual(app.snapshot()['bottlenecks'],[])     # sem rota não há "além do previsto"
     def test_assistant_warns_when_eta_passes_deadline_before_it_expires(self):
         did=self.routed('ETA',30,10)                        # prazo em 10 h
-        self.move(did,'Em trânsito',29,'Hub Recife/PE')     # resta Hub JP (10) + saída (12) + entrega (6) = 28 h
+        self.move(did,'Em rota',29,'Hub Recife/PE')     # resta Hub JP (10) + saída (12) + entrega (6) = 28 h
         r=self.route_of('ETA')
         self.assertGreater(r['eta_vs_deadline_hours'],0)
         item=next(i for i in app.snapshot()['assistant']['insights'] if 'chegada prevista depois' in i['titulo'])
@@ -198,8 +198,8 @@ class LogisticsTests(unittest.TestCase):
         self.assertTrue(all(d['route']['stops'][-1]['location']==d['destination'] for d in delivered))
     def test_diagnosis_points_where_and_what_to_do(self):
         did=self.routed('HUB',100,-28)                       # prazo vencido há 28 h
-        self.move(did,'Em trânsito',92,'Hub Recife/PE')
-        self.move(did,'Em trânsito',82,'Hub João Pessoa/PB')  # parada no hub há 82 h (previsto 12 h)
+        self.move(did,'Em rota',92,'Hub Recife/PE')
+        self.move(did,'Em rota',82,'Hub João Pessoa/PB')  # parada no hub há 82 h (previsto 12 h)
         dx=next(d for d in app.snapshot()['deliveries'] if d['code']=='HUB')['diagnosis']
         self.assertEqual(dx['scenario'],'Retenção no hub de destino')
         self.assertEqual(dx['where'],'Hub João Pessoa/PB')
@@ -212,13 +212,13 @@ class LogisticsTests(unittest.TestCase):
         self.assertIn('laudo',dx['actions'][0])
     def test_diagnosis_for_transfer_and_late_delivery_but_not_for_on_time(self):
         did=self.routed('TRF',40,30,'Fortaleza/CE')
-        self.move(did,'Em trânsito',32,'Hub Recife/PE')
-        self.move(did,'Em trânsito',20,'Hub Campina Grande/PB')  # trecho até Mossoró: 20 h contra 14 h
+        self.move(did,'Em rota',32,'Hub Recife/PE')
+        self.move(did,'Em rota',20,'Hub Campina Grande/PB')  # trecho até Mossoró: 20 h contra 14 h
         dx=next(d for d in app.snapshot()['deliveries'] if d['code']=='TRF')['diagnosis']
         self.assertEqual(dx['scenario'],'Atraso na transferência entre hubs')
         self.assertEqual(dx['where'],'Hub Campina Grande/PB → Hub Mossoró/RN')
         late=self.routed('LATE',80,-10)
-        self.move(late,'Em trânsito',70,'Hub Recife/PE')
+        self.move(late,'Em rota',70,'Hub Recife/PE')
         self.move(late,'Entregue',2,'João Pessoa/PB')
         dx=next(d for d in app.snapshot()['deliveries'] if d['code']=='LATE')['diagnosis']
         self.assertEqual(dx['scenario'],'Entregue com atraso')
@@ -276,9 +276,9 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status,200)
         everything=json.loads(data)
         self.assertEqual(everything['kpis']['total'],app.DEMO_SIZE)
-        status,data=self.request('GET','/api/data?carrier=Via%20Cargas')
+        status,data=self.request('GET','/api/data?carrier=Parceira%20Agreste')
         self.assertLess(json.loads(data)['kpis']['total'],app.DEMO_SIZE)
-        self.assertEqual({d['carrier'] for d in json.loads(data)['deliveries']},{'Via Cargas'})
+        self.assertEqual({d['carrier'] for d in json.loads(data)['deliveries']},{'Parceira Agreste'})
     def test_static_files_and_blocked_paths(self):
         for path in ['/','/static/app.js','/static/app.css']:
             self.assertEqual(self.request('GET',path)[0],200)

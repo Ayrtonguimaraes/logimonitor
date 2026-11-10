@@ -1,4 +1,4 @@
-"""LogiMonitor: servidor local, regras logísticas e persistência SQLite."""
+"""LogiMonitor Bebidas: servidor local, regras logísticas e persistência SQLite."""
 import argparse
 import json
 import sqlite3
@@ -17,8 +17,8 @@ STATIC_FILES = {'app.css': 'text/css; charset=utf-8', 'app.js': 'application/jav
 LOCAL_HOSTS = ('localhost', '127.0.0.1')
 
 TREATED = 'Ocorrência tratada'
-INCIDENTS = ['Avaria', 'Extravio', 'Tentativa sem sucesso']
-EVENTS = ['Coletado', 'Em trânsito', 'Saiu para entrega', 'Entregue'] + INCIDENTS + [TREATED]
+INCIDENTS = ['Avaria', 'Falta na carga', 'Cliente fechado']
+EVENTS = ['Carregado', 'Em rota', 'Saiu para o cliente', 'Entregue'] + INCIDENTS + [TREATED]
 
 # Parâmetros didáticos definidos pelo grupo (aparecem na aba "Conceitos e regras").
 STALE_HOURS = 24            # sem movimentação há mais de X horas
@@ -34,43 +34,46 @@ SEVERITY_RANK = {'warning': 1, 'high': 2, 'critical': 3}
 # Rotas planejadas a partir do CD de Recife: (local, evento ao chegar, horas previstas desde a parada anterior).
 # Dados fictícios: servem para comparar o tempo real de cada trecho com o previsto.
 ROUTES = {
-    'João Pessoa/PB': [('CD Recife/PE', 'Coletado', 0), ('Hub Recife/PE', 'Em trânsito', 8),
-                       ('Hub João Pessoa/PB', 'Em trânsito', 10), ('Hub João Pessoa/PB', 'Saiu para entrega', 12),
+    'João Pessoa/PB': [('CD Recife/PE', 'Carregado', 0), ('Hub Recife/PE', 'Em rota', 8),
+                       ('Hub João Pessoa/PB', 'Em rota', 10), ('Hub João Pessoa/PB', 'Saiu para o cliente', 12),
                        ('João Pessoa/PB', 'Entregue', 6)],
-    'Natal/RN': [('CD Recife/PE', 'Coletado', 0), ('Hub Recife/PE', 'Em trânsito', 8),
-                 ('Hub João Pessoa/PB', 'Em trânsito', 10), ('Hub Natal/RN', 'Em trânsito', 12),
-                 ('Hub Natal/RN', 'Saiu para entrega', 12), ('Natal/RN', 'Entregue', 6)],
-    'Fortaleza/CE': [('CD Recife/PE', 'Coletado', 0), ('Hub Recife/PE', 'Em trânsito', 8),
-                     ('Hub Campina Grande/PB', 'Em trânsito', 12), ('Hub Mossoró/RN', 'Em trânsito', 14),
-                     ('Hub Fortaleza/CE', 'Em trânsito', 12), ('Hub Fortaleza/CE', 'Saiu para entrega', 10),
+    'Natal/RN': [('CD Recife/PE', 'Carregado', 0), ('Hub Recife/PE', 'Em rota', 8),
+                 ('Hub João Pessoa/PB', 'Em rota', 10), ('Hub Natal/RN', 'Em rota', 12),
+                 ('Hub Natal/RN', 'Saiu para o cliente', 12), ('Natal/RN', 'Entregue', 6)],
+    'Fortaleza/CE': [('CD Recife/PE', 'Carregado', 0), ('Hub Recife/PE', 'Em rota', 8),
+                     ('Hub Campina Grande/PB', 'Em rota', 12), ('Hub Mossoró/RN', 'Em rota', 14),
+                     ('Hub Fortaleza/CE', 'Em rota', 12), ('Hub Fortaleza/CE', 'Saiu para o cliente', 10),
                      ('Fortaleza/CE', 'Entregue', 6)],
-    'Maceió/AL': [('CD Recife/PE', 'Coletado', 0), ('Hub Recife/PE', 'Em trânsito', 8),
-                  ('Hub Palmares/PE', 'Em trânsito', 8), ('Hub Maceió/AL', 'Em trânsito', 10),
-                  ('Hub Maceió/AL', 'Saiu para entrega', 10), ('Maceió/AL', 'Entregue', 6)],
+    'Maceió/AL': [('CD Recife/PE', 'Carregado', 0), ('Hub Recife/PE', 'Em rota', 8),
+                  ('Hub Palmares/PE', 'Em rota', 8), ('Hub Maceió/AL', 'Em rota', 10),
+                  ('Hub Maceió/AL', 'Saiu para o cliente', 10), ('Maceió/AL', 'Entregue', 6)],
 }
-MOVES = {'Coletado', 'Em trânsito', 'Saiu para entrega', 'Entregue'}  # eventos que avançam no trajeto
+MOVES = {'Carregado', 'Em rota', 'Saiu para o cliente', 'Entregue'}  # eventos que avançam no trajeto
 TOLERANCE_HOURS = 2  # atraso de trecho abaixo disso é considerado dentro do previsto
-SEED_NOTES = {'Coletado': 'Carga recebida no centro de distribuição.', 'Em trânsito': 'Chegada e triagem no hub.',
-              'Saiu para entrega': 'Carga em rota de entrega ao cliente.', 'Entregue': 'Recebimento confirmado pelo cliente.'}
+SEED_NOTES = {'Carregado': 'Pedido separado e carregado no CD.', 'Em rota': 'Chegada e cross-docking no ponto de transbordo.',
+              'Saiu para o cliente': 'Caminhão em rota para o PDV.', 'Entregue': 'Recebimento confirmado pelo PDV.'}
 DEMO_SIZE = 60
+# Pontos de venda (PDVs) fictícios atendidos pela distribuidora.
+CLIENTS = ['Bar do Zé', 'Mercadinho Boa Vista', 'Conveniência Posto', 'Restaurante Maré', 'Empório Central',
+           'Quiosque Beira-Mar', 'Adega São João', 'Supermercado Bom Preço Local']
 # Casos-problema da demonstração (as demais entregas seguem a rota dentro do previsto):
 # destino, horas desde a coleta, parada onde a entrega ficou, atraso extra em um hub e ocorrência registrada.
 DEMO_CASES = {
-    7: dict(destination='João Pessoa/PB', hours_ago=110, stop_at=('Hub João Pessoa/PB', 'Em trânsito')),
-    19: dict(destination='João Pessoa/PB', hours_ago=90, stop_at=('Hub João Pessoa/PB', 'Em trânsito'),
+    7: dict(destination='João Pessoa/PB', hours_ago=110, stop_at=('Hub João Pessoa/PB', 'Em rota')),
+    19: dict(destination='João Pessoa/PB', hours_ago=90, stop_at=('Hub João Pessoa/PB', 'Em rota'),
              incident=('Avaria', 3, 'Hub João Pessoa/PB', 'Embalagem danificada na triagem do hub; aguardando tratativa.')),
-    26: dict(destination='Fortaleza/CE', hours_ago=50, stop_at=('Hub Campina Grande/PB', 'Em trânsito')),
-    34: dict(destination='Natal/RN', hours_ago=64, stop_at=('Hub Natal/RN', 'Saiu para entrega'),
-             incident=('Tentativa sem sucesso', 10, 'Natal/RN', 'Cliente ausente no endereço; nova tentativa a combinar.')),
+    26: dict(destination='Fortaleza/CE', hours_ago=50, stop_at=('Hub Campina Grande/PB', 'Em rota')),
+    34: dict(destination='Natal/RN', hours_ago=64, stop_at=('Hub Natal/RN', 'Saiu para o cliente'),
+             incident=('Cliente fechado', 10, 'Natal/RN', 'Cliente ausente no endereço; nova tentativa a combinar.')),
     41: dict(destination='Natal/RN', hours_ago=200, delay=('Hub Natal/RN', 30)),
     52: dict(destination='Fortaleza/CE', hours_ago=160, delay=('Hub Mossoró/RN', 22)),
 }
 ACTIONS = {
-    'late': 'Cobrar a transportadora e informar o cliente sobre a nova previsão.',
-    'risk': 'Confirmar com a transportadora se a entrega ocorrerá dentro do prazo.',
+    'late': 'Cobrar a frota e informar o cliente sobre a nova previsão.',
+    'risk': 'Confirmar com a frota se a entrega ocorrerá dentro do prazo.',
     'stale': 'Solicitar atualização do transporte.',
     'incident': 'Investigar a ocorrência, registrar a tratativa e marcar como tratada.',
-    'loss': 'Acionar a transportadora e o seguro e avisar o cliente.',
+    'loss': 'Acionar a frota e o seguro e avisar o cliente.',
 }
 
 
@@ -122,7 +125,7 @@ def initialize():
             return
         base = now()
         destinations = ['João Pessoa/PB', 'Natal/RN', 'Fortaleza/CE', 'Maceió/AL']
-        carriers = ['Rota Nordeste', 'Expresso Litoral', 'Via Cargas']
+        carriers = ['Frota Própria', 'Parceira Litoral', 'Parceira Agreste']
         for i in range(1, DEMO_SIZE + 1):
             case = DEMO_CASES.get(i, {})
             destination = case.get('destination', destinations[i % 4])
@@ -130,15 +133,15 @@ def initialize():
             deadline = collected + timedelta(days=3)
             cur = con.execute(
                 'INSERT INTO deliveries(code,client,origin,destination,carrier,collected,deadline) VALUES(?,?,?,?,?,?,?)',
-                (f'LOG{i:04}', f'Cliente {i:02}', 'Recife/PE', destination, carriers[i % 3],
+                (f'PED{i:04}', f'{CLIENTS[i % len(CLIENTS)]} {i:02}', 'Recife/PE', destination, carriers[i % 3],
                  stamp(collected), stamp(deadline)))
             did = cur.lastrowid
             route = ROUTES[destination]
-            add_event(con, did, stamp(collected), 'Coletado', route[0][0], SEED_NOTES['Coletado'])
+            add_event(con, did, stamp(collected), 'Carregado', route[0][0], SEED_NOTES['Carregado'])
             moment = collected
             for leg, (location, kind, planned) in enumerate(route[1:], 1):
                 hours = planned * (0.85 + (i * 7 + leg * 3) % 6 / 20)  # 85% a 110% do previsto
-                if 'delay' in case and case['delay'][0] == location and kind == 'Em trânsito':
+                if 'delay' in case and case['delay'][0] == location and kind == 'Em rota':
                     hours += case['delay'][1]
                 moment += timedelta(hours=hours)
                 if moment > base:
@@ -162,12 +165,12 @@ def reset_demo():
 # ---------------------------------------------------------------- regras logísticas
 
 def incident_state(history):
-    """Devolve (ocorrência em aberto, extravio em aberto) segundo o histórico."""
+    """Devolve (ocorrência em aberto, falta na carga em aberto) segundo o histórico."""
     is_open = lost = False
     for event in history:
         if event['kind'] in INCIDENTS:
             is_open = True
-            lost = lost or event['kind'] == 'Extravio'
+            lost = lost or event['kind'] == 'Falta na carga'
         elif event['kind'] == TREATED:
             is_open = lost = False
     return is_open, lost
@@ -199,7 +202,7 @@ def trajectory(row, history, current):
         planned = None
         if plan:
             match = next((j for j in range(cursor, len(plan)) if plan[j][1] == event['kind']
-                          and (event['kind'] == 'Coletado' or plan[j][0] == event['location'])), None)
+                          and (event['kind'] == 'Carregado' or plan[j][0] == event['location'])), None)
             if match is not None:
                 planned = sum(p[2] for p in plan[cursor:match + 1]) if match else None  # soma trechos pulados
                 cursor = match + 1
@@ -268,34 +271,34 @@ STAGE_PLAYBOOK = {
         'Confirmar com o CD se a carga foi expedida e em qual veículo.',
         'Se ainda estiver no CD, priorizar a expedição no próximo carregamento.',
         'Avisar o cliente caso a previsão passe do prazo.']),
-    'transfer': ('Atraso na transferência entre hubs', 'Transportadora', [
-        'Pedir à transportadora a posição do veículo e o motivo da demora (fiscalização, problema mecânico, estrada).',
+    'transfer': ('Atraso na transferência entre hubs', 'Frota', [
+        'Pedir à frota a posição do veículo e o motivo da demora (fiscalização, problema mecânico, estrada).',
         'Se o veículo estiver parado, solicitar transbordo para outro veículo.',
         'Atualizar o cliente com a nova previsão de entrega.']),
-    'hub': ('Retenção no hub de destino', 'Hub de destino e transportadora', [
+    'hub': ('Retenção no hub de destino', 'Hub de destino e frota', [
         'Ligar para o hub e pedir prioridade na roteirização de saída desta entrega.',
         'Verificar se há pendência impedindo a saída (documentação, endereço, avaria).',
         'Informar o cliente sobre a nova previsão.']),
-    'last_mile': ('Atraso na última milha', 'Transportadora e cliente', [
+    'last_mile': ('Atraso na última milha', 'Frota e cliente', [
         'Confirmar com o motorista se houve tentativa de entrega e o motivo.',
         'Validar endereço e janela de recebimento com o cliente.',
         'Reagendar a entrega com prioridade.']),
-    'stale': ('Sem atualização de rastreio', 'Transportadora', [
-        'Solicitar à transportadora o registro da posição atual da carga.',
+    'stale': ('Sem atualização de rastreio', 'Frota', [
+        'Solicitar à frota o registro da posição atual da carga.',
         'Combinar uma frequência mínima de atualização do rastreio.',
-        'Se não houver resposta, tratar como possível extravio.']),
+        'Se não houver resposta, tratar como possível falta na carga.']),
 }
 INCIDENT_PLAYBOOK = {
-    'Avaria': ('Transportadora e cliente', [
-        'Pedir fotos e laudo da avaria à transportadora.',
+    'Avaria': ('Frota e cliente', [
+        'Pedir fotos e laudo da avaria à frota.',
         'Decidir com o cliente: seguir com reembalagem ou enviar reposição.',
         'Registrar a tratativa e marcar "Ocorrência tratada" no histórico.']),
-    'Tentativa sem sucesso': ('Cliente e transportadora', [
+    'Cliente fechado': ('Cliente e frota', [
         'Contatar o cliente para confirmar endereço, horário e quem vai receber.',
-        'Reagendar a nova tentativa com a transportadora.',
+        'Reagendar a nova tentativa com a frota.',
         'Registrar a tratativa e marcar "Ocorrência tratada" no histórico.']),
-    'Extravio': ('Transportadora, seguradora e cliente', [
-        'Abrir o processo de extravio com a transportadora e acionar o seguro.',
+    'Falta na carga': ('Frota, seguradora e cliente', [
+        'Abrir o processo de falta na carga com a frota e acionar o seguro.',
         'Combinar com o cliente o reenvio ou o reembolso.',
         'Registrar a tratativa no histórico.']),
 }
@@ -303,11 +306,11 @@ INCIDENT_PLAYBOOK = {
 
 def leg_stage(prev, stop):
     """Classifica um trecho do trajeto: saída do CD, transferência, espera no hub ou última milha."""
-    if stop['kind'] == 'Entregue' and prev['kind'] == 'Saiu para entrega':
+    if stop['kind'] == 'Entregue' and prev['kind'] == 'Saiu para o cliente':
         return 'last_mile'
     if prev['location'] == stop['location'] or not stop['kind']:
         return 'hub'
-    return 'origin' if prev['kind'] == 'Coletado' and stop['kind'] == 'Em trânsito' else 'transfer'
+    return 'origin' if prev['kind'] == 'Carregado' and stop['kind'] == 'Em rota' else 'transfer'
 
 
 def leg_place(prev, stop, stage):
@@ -357,8 +360,8 @@ def diagnose(row, current):
         scenario, owner, actions = STAGE_PLAYBOOK['stale']
     if lost and target['status'] == 'current':
         detail = {'hub': f'Parada {at_place(place)} há {d(target["actual_hours"])}, aguardando saída para entrega; o previsto era {d(target["planned_hours"])}.',
-                  'last_mile': f'Saiu para entrega há {d(target["actual_hours"])}; o previsto era {d(target["planned_hours"])}.'
-                  }.get(stage, f'Em trânsito no trecho {place} há {d(target["actual_hours"])}; o previsto era {d(target["planned_hours"])}.')
+                  'last_mile': f'Saiu para o cliente há {d(target["actual_hours"])}; o previsto era {d(target["planned_hours"])}.'
+                  }.get(stage, f'Em rota no trecho {place} há {d(target["actual_hours"])}; o previsto era {d(target["planned_hours"])}.')
     elif lost:
         detail = f'Perdeu {d(target["excess_hours"])} {at_place(place)} ({d(target["actual_hours"])} contra {d(target["planned_hours"])} previstos).'
     else:
@@ -414,7 +417,7 @@ def analyze(row, history, current):
     else:
         remaining = hours_between(current, deadline)
         row['hours_to_deadline'] = round(remaining, 1)
-        if remaining <= RISK_HOURS and row['status'] != 'Saiu para entrega':
+        if remaining <= RISK_HOURS and row['status'] != 'Saiu para o cliente':
             alert('risk', 'warning', 'Risco de atraso', ACTIONS['risk'])
     if current - datetime.fromisoformat(history[-1]['time']) > timedelta(hours=STALE_HOURS):
         alert('stale', 'warning', f'Sem atualização há mais de {STALE_HOURS}h', ACTIONS['stale'])
@@ -458,7 +461,7 @@ def compute_kpis(deliveries):
 
 
 def scorecards(deliveries):
-    """Desempenho por transportadora, do melhor para o pior (OTD, depois ocorrências)."""
+    """Desempenho por frota, do melhor para o pior (OTD, depois ocorrências)."""
     cards = []
     for name in sorted({d['carrier'] for d in deliveries}):
         card = compute_kpis([d for d in deliveries if d['carrier'] == name])
@@ -557,7 +560,7 @@ def create_delivery(data):
     values[-2:] = [stamp(collected), stamp(deadline)]
     with session() as con:
         cur = con.execute('INSERT INTO deliveries(code,client,origin,destination,carrier,collected,deadline) VALUES(?,?,?,?,?,?,?)', values)
-        add_event(con, cur.lastrowid, values[-2], 'Coletado', values[2], 'Cadastro da entrega.')
+        add_event(con, cur.lastrowid, values[-2], 'Carregado', values[2], 'Cadastro da entrega.')
 
 
 def create_event(data):
@@ -654,5 +657,5 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8501)
     args = parser.parse_args()
     initialize()
-    print(f'LogiMonitor disponível em http://localhost:{args.port}', flush=True)
+    print(f'LogiMonitor Bebidas disponível em http://localhost:{args.port}', flush=True)
     ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()

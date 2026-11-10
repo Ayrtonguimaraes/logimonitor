@@ -2,8 +2,8 @@
    fundo neutro, cartões brancos sem bordas, tipografia do sistema e cor apenas para status. */
 :root{
   --ink:#1d1d1f;--ink2:#424245;--muted:#6e6e73;--faint:#86868b;
-  --bg:#f5f5f7;--card:#fff;--fill:#f5f5f7;--fill2:#e8e8ed;--line:#e5e5ea;--line2:#d2d2d7;
-  --accent:#0071e3;--accent-hover:#0077ed;--accent-bg:#e8f2fd;
+  --bg:#f7f5ef;--card:#fff;--fill:#f5f5f7;--fill2:#e8e8ed;--line:#e5e5ea;--line2:#d2d2d7;
+  --accent:#1b3a8c;--accent-hover:#244aa8;--accent-bg:#e9eef9;--brand-navy:#0f2257;--brand-amber:#f2b630;--brand-amber-bg:#fdf3dc;
   --good:#248a3d;--good-fill:#34c759;--good-bg:#e9f7ed;
   --warn:#b25000;--warn-fill:#ff9f0a;--warn-bg:#fff4e5;
   --bad:#d70015;--bad-fill:#ff3b30;--bad-bg:#ffeceb;
@@ -15,7 +15,7 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg)}
-:focus-visible{outline:3px solid rgba(0,113,227,.45);outline-offset:2px;border-radius:8px}
+:focus-visible{outline:3px solid rgba(27,58,140,.45);outline-offset:2px;border-radius:8px}
 .skip{position:absolute;left:-999px;top:0;background:#fff;padding:8px 12px;z-index:30;border-radius:8px}
 .skip:focus{left:8px;top:8px}
 [hidden]{display:none!important}
@@ -27,10 +27,10 @@ strong,b{font-weight:600}
 
 /* ------------------------------------------------ barra superior translúcida */
 header.top{position:sticky;top:0;z-index:20;background:rgba(251,251,253,.78);backdrop-filter:saturate(180%) blur(20px);
-  -webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid rgba(0,0,0,.08)}
+  -webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:3px solid var(--brand-amber)}
 .topbar{max-width:1200px;margin:0 auto;padding:10px 24px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
 h1.brand{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
-.logo{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#1d1d1f,#3a3a3c);color:#fff;font-size:13px}
+.logo{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--brand-navy);color:var(--brand-amber);font-size:13px}
 .top-right{display:flex;align-items:center;justify-content:flex-end;gap:14px;font-size:12px;color:var(--muted)}
 
 /* Controle segmentado (abas) */

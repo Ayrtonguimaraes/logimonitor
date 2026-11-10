@@ -15,7 +15,7 @@ const localInput = (offsetHours = 0) => {
 
 const LEVEL_TEXT = {good: 'Dentro da meta', warn: 'Atenção', bad: 'Fora da meta'};
 const SEVERITY = {critical: {label: 'Crítico', rank: 3}, high: {label: 'Alto', rank: 2}, warning: {label: 'Atenção', rank: 1}};
-const INCIDENTS = ['Avaria', 'Extravio', 'Tentativa sem sucesso'];
+const INCIDENTS = ['Avaria', 'Falta na carga', 'Cliente fechado'];
 const PAGES = ['dashboard', 'deliveries', 'alerts', 'concepts'];
 
 const hasAlert = (d, code) => d.alert_details.some(a => a.code === code);
@@ -154,7 +154,7 @@ function showInsight(index, announce = false) {
     state.assistIndex = (index + items.length) % items.length;
     const item = items[state.assistIndex];
     const n = item.entregas.length;
-    const target = n ? `Ver ${n} ${n === 1 ? 'entrega' : 'entregas'}` : item.transportadora ? `Ver ${item.transportadora}` : item.alerta ? 'Ver alertas' : '';
+    const target = n ? `Ver ${n} ${n === 1 ? 'entrega' : 'entregas'}` : item.frota ? `Ver ${item.frota}` : item.alerta ? 'Ver alertas' : '';
     $('assistcard').setAttribute('aria-live', announce ? 'polite' : 'off');
     $('assistcard').innerHTML = `<article class="insight-card ${item.nivel}">
         <span class="tag-level ${item.nivel}">${ASSIST_LEVEL_TEXT[item.nivel]}</span>
@@ -196,8 +196,8 @@ function assistDrill(index) {
         const list = state.data.deliveries.filter(d => item.entregas.includes(d.code));
         openModal(`<h2 id="modaltitle">${esc(item.titulo)}</h2><p>${esc(item.analise)}</p>
             <p class="todo-box"><b>Ação recomendada:</b> ${esc(item.acao)}</p><div class="scroll">${listHtml(list)}</div>`);
-    } else if (item.transportadora) {
-        go({view: 'deliveries', carrier: item.transportadora});
+    } else if (item.frota) {
+        go({view: 'deliveries', carrier: item.frota});
     } else {
         go({view: 'alerts', filter: item.alerta});
     }
@@ -284,7 +284,7 @@ function renderLiveMap({routes, deliveries}) {
             if (flowing.has(i)) layers.legs += `<line x1="${xs[i - 1]}" y1="${y}" x2="${xs[i]}" y2="${y}" class="m-flow"/>`;
         }
         plan.forEach((st, i) => {
-            const minor = st[1] === 'Saiu para entrega';
+            const minor = st[1] === 'Saiu para o cliente';
             const label = i === 0 ? 'CD Recife' : st[1] === 'Entregue' ? 'Cliente' : minor ? '' : shortPlace(st[0]);
             layers.stations += `<g class="m-station ${minor ? 'minor' : ''}"><title>${esc(st[0])} · ${STEP_LABEL[st[1]]}${i ? ` · ${cum[i]} h previstas desde a coleta` : ''}</title>
                 <circle cx="${xs[i]}" cy="${y}" r="${minor ? 3 : 5}"/>${label ? `<text x="${xs[i]}" y="${y + 21}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`;
@@ -350,7 +350,7 @@ function spotDrill(index) {
 function renderScorecard({carriers, targets: T}) {
     if (!carriers.length) { $('scorecard').innerHTML = '<p class="empty">Sem dados no filtro.</p>'; return; }
     const goal = T.otd.good;
-    $('scorecard').innerHTML = `<table class="compact"><thead><tr><th>Transportadora</th><th>OTD</th>
+    $('scorecard').innerHTML = `<table class="compact"><thead><tr><th>Frota</th><th>OTD</th>
         <th class="num">Atrasos</th><th class="num">Ocorr.</th></tr></thead><tbody>${carriers.map(c => `<tr>
         <td><button type="button" class="name" data-carrier="${esc(c.carrier)}">${esc(c.carrier)}</button></td>
         <td><div class="otd"><b class="lv-text-${c.levels.otd || 'none'}">${fmtNum(c.otd, '%')}</b>
@@ -487,7 +487,7 @@ function renderConcepts({targets: T, rules, routes}) {
         <tr><td>Entrega atrasada</td><td>Prazo vencido e entrega não concluída</td><td>Alto; Crítico se atrasada há mais de ${rules.critical_overdue_hours} h</td></tr>
         <tr><td>Risco de atraso</td><td>Faltam ${rules.risk_hours} h ou menos para o prazo e a entrega ainda não saiu para entrega</td><td>Atenção</td></tr>
         <tr><td>Sem atualização</td><td>Último registro há mais de ${rules.stale_hours} h</td><td>Atenção</td></tr>
-        <tr><td>Ocorrência</td><td>Avaria, extravio ou tentativa sem sucesso ainda não tratada</td><td>Alto; Crítico no caso de extravio</td></tr></tbody></table>`;
+        <tr><td>Ocorrência</td><td>Avaria, falta na carga ou tentativa sem sucesso ainda não tratada</td><td>Alto; Crítico no caso de falta na carga</td></tr></tbody></table>`;
 }
 
 /* ------------------------------------------------------------ modais */
@@ -499,7 +499,7 @@ function openModal(html) {
 
 function listHtml(list) {
     if (!list.length) return '<p class="empty">Nenhuma entrega neste grupo.</p>';
-    return `<table><thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / transportadora</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
+    return `<table><thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / frota</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
         <tbody>${[...list].sort(byPriority).map(rowHtml).join('')}</tbody></table>`;
 }
 
@@ -507,7 +507,7 @@ const DRILLS = {
     otd: ['Concluídas fora do prazo', 'São estas entregas que puxam o OTD para baixo.', d => d.delivered && !d.on_time],
     avg: ['Entregas concluídas', 'Entregas usadas no cálculo do tempo médio.', d => d.delivered],
     late: ['Entregas em atraso', 'Da mais crítica para a menos crítica.', d => hasAlert(d, 'late')],
-    incidents: ['Entregas com ocorrência', 'Entregas com avaria, extravio ou tentativa sem sucesso.', d => d.had_incident],
+    incidents: ['Entregas com ocorrência', 'Entregas com avaria, falta na carga ou tentativa sem sucesso.', d => d.had_incident],
 };
 
 const STAGES = [['first', 'Coleta até o hub de origem'], ['transfer', 'Transferência entre hubs'],
@@ -516,8 +516,8 @@ const STAGES = [['first', 'Coleta até o hub de origem'], ['transfer', 'Transfer
 function stageOf(stops, i) {
     const kind = stops[i].kind;
     if (kind === 'Entregue') return 'last';
-    if (kind === 'Saiu para entrega') return 'hub';
-    return stops[i - 1].kind === 'Coletado' ? 'first' : 'transfer';
+    if (kind === 'Saiu para o cliente') return 'hub';
+    return stops[i - 1].kind === 'Carregado' ? 'first' : 'transfer';
 }
 
 /* Tempo médio real e previsto por etapa do trajeto, nas entregas concluídas com rota planejada. */
@@ -574,7 +574,7 @@ function explainHtml(key) {
     }
     if (!k.incident_count) return '<p>Nenhuma entrega com ocorrência neste filtro.</p>';
     const per = Math.round(k.total / k.incident_count);
-    return `${picto(1, Math.min(per, 20))}<p>Cerca de <b>1 de cada ${per}</b> entregas teve algum problema (avaria, extravio ou tentativa sem sucesso).
+    return `${picto(1, Math.min(per, 20))}<p>Cerca de <b>1 de cada ${per}</b> entregas teve algum problema (avaria, falta na carga ou tentativa sem sucesso).
         A meta é no máximo ${T.incidents.good}%, ou seja, 1 de cada ${Math.round(100 / T.incidents.good)}.</p>
         <p class="formula">${k.incident_count} entregas com ocorrência ÷ ${k.total} entregas × 100 = <b>${fmtNum(k.incidents, '%')}</b></p>
         <p class="muted">Cada entrega conta uma vez, mesmo com vários problemas.</p>${incidentsHtml(state.data.incident_kinds)}`;
@@ -590,7 +590,7 @@ function drill(key) {
         <h3>${title} (${list.length})</h3><p class="muted">${text}</p><div class="scroll">${listHtml(list)}</div>`);
 }
 
-const STEP_LABEL = {'Coletado': 'coleta', 'Em trânsito': 'chegada', 'Saiu para entrega': 'saída para entrega', 'Entregue': 'entrega ao cliente'};
+const STEP_LABEL = {'Carregado': 'coleta', 'Em rota': 'chegada', 'Saiu para o cliente': 'saída para entrega', 'Entregue': 'entrega ao cliente'};
 
 function legHtml(stop) {
     if (stop.actual_hours === null) return '';
@@ -623,7 +623,7 @@ function placeText(r, next, d) {
     const here = r.current_location || d.origin;
     if (!next) return `Último registro ${prep(here)}.`;
     const planned = next.planned_hours !== null ? ` (trecho previsto: ${dur(next.planned_hours)})` : '';
-    if (next.location !== here && next.kind === 'Em trânsito') {
+    if (next.location !== here && next.kind === 'Em rota') {
         return `Saiu ${prep(here).replace(/^no /, 'do ').replace(/^em /, 'de ')} há ${dur(next.actual_hours)}, a caminho ${prep(next.location).replace(/^no /, 'do ').replace(/^em /, 'de ')}${planned}.`;
     }
     return `${prep(here)[0].toUpperCase()}${prep(here).slice(1)} há ${dur(next.actual_hours)}, aguardando ${STEP_LABEL[next.kind] || 'a próxima movimentação'}${planned}.`;
@@ -671,8 +671,8 @@ function detail(id) {
     const events = d.events.map(e => `<div class="event ${INCIDENTS.includes(e.kind) ? 'bad' : e.kind === 'Entregue' ? 'done' : ''}">
         <b>${esc(e.kind)}</b> · ${fmtDate(e.time)}<br>${esc(e.location)}<p class="muted">${esc(e.note)}</p></div>`).join('');
     const next = r.stops.find(s => s.status === 'current');
-    const kinds = ['Em trânsito', 'Saiu para entrega', 'Entregue', ...INCIDENTS, ...(d.open_incident ? ['Ocorrência tratada'] : [])];
-    const presets = ['Em trânsito', 'Saiu para entrega', 'Entregue', ...(d.open_incident ? ['Ocorrência tratada'] : [])];
+    const kinds = ['Em rota', 'Saiu para o cliente', 'Entregue', ...INCIDENTS, ...(d.open_incident ? ['Ocorrência tratada'] : [])];
+    const presets = ['Em rota', 'Saiu para o cliente', 'Entregue', ...(d.open_incident ? ['Ocorrência tratada'] : [])];
     const form = d.delivered ? '' : `<h3>Registrar próxima movimentação</h3>
         ${next && next.kind ? `<p class="muted small">Próximo passo previsto na rota: <b>${STEP_LABEL[next.kind]} em ${esc(next.location)}</b>. O formulário já vem preenchido com ele.</p>` : ''}
         <div class="presets" aria-label="Atalhos">${presets.map(p => `<button type="button" class="ghost" data-preset="${p}">${p}</button>`).join('')}</div>
@@ -725,7 +725,7 @@ function newDelivery() {
         ${field('client', 'Cliente', 'maxlength="300"')}
         ${field('origin', 'Origem', `maxlength="300" value="${esc(origin)}"`)}
         ${field('destination', 'Destino', 'maxlength="300" list="destlist"')}
-        ${field('carrier', 'Transportadora', 'maxlength="300" list="carrierlist"')}
+        ${field('carrier', 'Frota', 'maxlength="300" list="carrierlist"')}
         <span></span>
         ${field('collected', 'Coleta', `type="datetime-local" value="${localInput()}" max="${localInput()}"`)}
         ${field('deadline', 'Prazo de entrega', `type="datetime-local" value="${localInput(72)}"`)}
@@ -802,12 +802,12 @@ async function copyText(text, done) {
         await navigator.clipboard.writeText(text);
         toast(done);
     } catch {
-        openModal(`<h2 id="modaltitle">Mensagem para a transportadora</h2><textarea readonly rows="8" style="width:100%">${esc(text)}</textarea>`);
+        openModal(`<h2 id="modaltitle">Mensagem para a frota</h2><textarea readonly rows="8" style="width:100%">${esc(text)}</textarea>`);
     }
 }
 
 function exportCsv() {
-    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Transportadora', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'Alertas'];
+    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Frota', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'Alertas'];
     const rows = state.data.deliveries.map(d => [d.code, d.client, d.origin, d.destination, d.carrier, d.collected, d.deadline,
                                                   d.status, d.delivered, d.alerts.join(' | ')]);
     const quote = v => '"' + String(v ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""') + '"';
@@ -837,7 +837,7 @@ document.addEventListener('click', event => {
     else if (ds.carrier) { $('modal').open && $('modal').close(); go({view: 'deliveries', carrier: ds.carrier}); }
     else if (ds.chip) { state.chip = ds.chip; render(); }
     else if (ds.achip) { state.alertChip = ds.achip; render(); }
-    else if (ds.copy) copyText(deliveryMessage(state.data.deliveries.find(d => d.id === Number(ds.copy))), 'Mensagem copiada. Cole no e-mail ou WhatsApp da transportadora.');
+    else if (ds.copy) copyText(deliveryMessage(state.data.deliveries.find(d => d.id === Number(ds.copy))), 'Mensagem copiada. Cole no e-mail ou WhatsApp da frota.');
     else if (ds.copyCarrier) copyText(carrierMessage(ds.copyCarrier), `Cobrança para ${ds.copyCarrier} copiada.`);
 });
 

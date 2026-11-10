@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LogiMonitor • Operação logística</title>
+<title>LogiMonitor Bebidas • Operação logística</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <a class="skip" href="#main">Pular para o conteúdo</a>
 <header class="top">
   <div class="topbar">
-    <h1 class="brand"><span class="logo" aria-hidden="true">◈</span> LogiMonitor</h1>
+    <h1 class="brand"><span class="logo" aria-hidden="true">◈</span> LogiMonitor Bebidas</h1>
     <nav id="tabs" class="segmented" role="tablist" aria-label="Seções do sistema">
       <button role="tab" id="tab-dashboard" data-page="dashboard" aria-selected="true">Visão geral</button>
       <button role="tab" id="tab-deliveries" data-page="deliveries" aria-selected="false">Entregas</button>
@@ -33,7 +33,7 @@
       <p id="pagesub" class="lead">Visibilidade para decidir. Rastreabilidade para agir.</p>
     </div>
     <form id="filters" class="filters" autocomplete="off">
-      <label>Transportadora
+      <label>Frota
         <select id="carrier"><option value="">Todas</option></select>
       </label>
       <label>Coleta a partir de <input id="start" type="date"></label>
@@ -82,7 +82,7 @@
 
     <div class="split equal">
       <div class="panel">
-        <div class="panel-head"><h3>Transportadoras</h3><span class="muted">ordenadas por OTD</span></div>
+        <div class="panel-head"><h3>Frotas</h3><span class="muted">ordenadas por OTD</span></div>
         <div id="scorecard" class="scroll"></div>
       </div>
       <div class="panel">
@@ -101,7 +101,7 @@
     <div id="chips" class="chips" role="group" aria-label="Filtrar por situação"></div>
     <div class="panel scroll">
       <table>
-        <thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / transportadora</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
+        <thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / frota</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -113,8 +113,8 @@
     <div class="alert-layout">
       <div id="alertlist" class="panel alert-list"></div>
       <aside class="panel">
-        <div class="panel-head"><h3>Cobrar por transportadora</h3></div>
-        <p class="muted small">Uma mensagem só, com todas as pendências da transportadora.</p>
+        <div class="panel-head"><h3>Cobrar por frota</h3></div>
+        <p class="muted small">Uma mensagem só, com todas as pendências da frota.</p>
         <div id="carrieralerts"></div>
       </aside>
     </div>
@@ -135,7 +135,7 @@
       <p><b>OTD (On-Time Delivery):</b> entregas concluídas até o prazo ÷ entregas concluídas × 100. Pendentes não entram no denominador. Sem entregas concluídas, o resultado é “—”.</p>
       <p><b>Tempo médio de entrega:</b> média das horas corridas entre coleta e entrega das entregas concluídas (inclui fins de semana). É comparado ao prazo prometido médio dessas mesmas entregas.</p>
       <p><b>Entregas em atraso:</b> entregas ainda não concluídas cujo prazo já venceu.</p>
-      <p><b>Taxa de ocorrências:</b> entregas com ao menos um evento de avaria, extravio ou tentativa sem sucesso ÷ todas as entregas do filtro × 100. Cada entrega conta uma vez.</p>
+      <p><b>Taxa de ocorrências:</b> entregas com ao menos um evento de avaria, falta na carga ou tentativa sem sucesso ÷ todas as entregas do filtro × 100. Cada entrega conta uma vez.</p>
       <p><b>Atraso médio:</b> média de horas além do prazo, apenas nas entregas concluídas fora do prazo.</p>
     </div>
     <div class="panel">
@@ -158,15 +158,15 @@
       <h3>Assistente de insights</h3>
       <p>O assistente lê as entregas do filtro e escreve uma análise com até 6 recomendações, da mais urgente para a menos urgente. <b>Não é inteligência artificial:</b> cada insight vem de uma regra analítica explícita, em <code>assistant.py</code>, então o resultado pode ser conferido nas outras telas.</p>
       <div class="scroll"><table><thead><tr><th>Regra</th><th>O que verifica</th><th>Para que serve na decisão</th></tr></thead><tbody>
-        <tr><td>Atrasos por destino</td><td>50% ou mais dos atrasos em um mesmo destino</td><td>Separar problema de rota de problema de transportadora</td></tr>
-        <tr><td>Atrasos por transportadora</td><td>Fatia de atrasos 15 pontos acima da fatia de volume</td><td>Identificar falha de nível de serviço de um fornecedor</td></tr>
+        <tr><td>Atrasos por destino</td><td>50% ou mais dos atrasos em um mesmo destino</td><td>Separar problema de rota de problema de frota</td></tr>
+        <tr><td>Atrasos por frota</td><td>Fatia de atrasos 15 pontos acima da fatia de volume</td><td>Identificar falha de nível de serviço de um fornecedor</td></tr>
         <tr><td>Ocorrências travando entregas</td><td>Ocorrências sem tratativa e quantas já estão atrasadas</td><td>Priorizar as tratativas que destravam entregas</td></tr>
         <tr><td>Risco de atraso</td><td>Prazo vence em breve e a entrega não saiu</td><td>Agir antes do atraso (gestão preventiva)</td></tr>
-        <tr><td>Rastreabilidade</td><td>Entregas sem atualização, por transportadora</td><td>Cobrar registro de movimentação</td></tr>
-        <tr><td>Simulação de transportadora</td><td>OTD geral se a pior tivesse a pontualidade da melhor</td><td>Avaliar o ganho de redistribuir volume</td></tr>
+        <tr><td>Rastreabilidade</td><td>Entregas sem atualização, por frota</td><td>Cobrar registro de movimentação</td></tr>
+        <tr><td>Simulação de frota</td><td>OTD geral se a pior tivesse a pontualidade da melhor</td><td>Avaliar o ganho de redistribuir volume</td></tr>
         <tr><td>Tendência</td><td>OTD dos últimos 3 dias contra os anteriores (variação de 10 pontos)</td><td>Detectar piora ou melhora recente</td></tr>
         <tr><td>Prazo prometido</td><td>Tempo médio de entrega contra o prazo médio prometido</td><td>Decidir entre rever o prazo ou tratar exceções</td></tr>
-        <tr><td>Extravio</td><td>Extravio sem tratativa</td><td>Acionar transportadora e seguro</td></tr>
+        <tr><td>Falta na carga</td><td>Falta na carga sem tratativa</td><td>Acionar frota e seguro</td></tr>
       </tbody></table></div>
       <p>O resumo no topo combina a situação geral com o insight mais urgente. A análise apoia a decisão; a confirmação dos fatos cabe ao gestor.</p>
     </div>
@@ -179,7 +179,7 @@
   </section>
 
   <footer>
-    LogiMonitor · Projeto acadêmico com dados fictícios · Python + SQLite ·
+    LogiMonitor Bebidas · Projeto acadêmico com dados fictícios · Python + SQLite ·
     <button type="button" id="reset" class="link">Restaurar dados de demonstração</button>
   </footer>
 </main>
