@@ -14,6 +14,7 @@ class LogisticsTests(unittest.TestCase):
         app.DB=Path(self.temp.name)/'test.sqlite3'
         app.initialize()
         with app.session() as con:
+            con.execute('DELETE FROM returns')
             con.execute('DELETE FROM items')
             con.execute('DELETE FROM events')
             con.execute('DELETE FROM deliveries')
@@ -240,6 +241,18 @@ class LogisticsTests(unittest.TestCase):
         k=data["kpis"]
         self.assertEqual((k["otd"],k["otif"],k["fill_rate"],k["fefo"]),(100.0,0.0,80.0,0.0))
         self.assertEqual(k["levels"]["otif"],"bad")
+    def test_empties_return_rate_balance_and_alert(self):
+        did=self.custom("V1",30,10)
+        with app.session() as con:
+            con.execute("INSERT INTO items(delivery_id,sku,lot,expiry,qty_ordered,qty_delivered) VALUES(?,?,?,?,?,?)",(did,"G600","L","2099-01-01",20,20))
+        app.create_event(dict(delivery_id=did,kind="Entregue",time=app.stamp(app.now()-timedelta(hours=1)),location="Natal",empties="4"))
+        open_=self.custom("V2",5,40)
+        with app.session() as con:
+            con.execute("UPDATE deliveries SET client=? WHERE id IN (?,?)",("Bar do Teste",did,open_))
+        data=app.snapshot()
+        self.assertEqual((data["kpis"]["empties_out"],data["kpis"]["empties_in"],data["kpis"]["empties"]),(20,4,20.0))
+        self.assertEqual(data["empties_balance"][0]["pending"],16)
+        self.assertIn("empties",self.codes("V2"))
     def test_demo_lots_flag_expiry(self):
         app.reset_demo()
         data=app.snapshot()

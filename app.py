@@ -28,6 +28,7 @@ TARGETS = {
     'otif': {'label': 'No prazo e completo (OTIF)', 'good': 90, 'warn': 80, 'higher_is_better': True, 'unit': '%'},
     'otd': {'label': 'Entregas no prazo (OTD)', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
     'fill_rate': {'label': 'Fill rate (caixas atendidas)', 'good': 98, 'warn': 95, 'higher_is_better': True, 'unit': '%'},
+    'empties': {'label': 'Retorno de vasilhame', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
     'fefo': {'label': 'Aderência FEFO', 'good': 98, 'warn': 90, 'higher_is_better': True, 'unit': '%'},
     'incidents': {'label': 'Taxa de ocorrências', 'good': 5, 'warn': 10, 'higher_is_better': False, 'unit': '%'},
     'late': {'label': 'Entregas em atraso', 'good': 0, 'warn': 3, 'higher_is_better': False, 'unit': ''},
@@ -66,6 +67,9 @@ SEED_LOTS = {'PIL350': [('L2611', 20, 340), ('L2702', 75, 900)], 'LN355': [('L26
              'G600': [('L2598', 5, 120), ('L2640', 60, 650)], 'BAR30': [('B0412', 12, 40), ('B0420', 25, 60)]}
 EXPIRY_WARN_DAYS = 30      # lote vencendo em até X dias gera alerta
 EXPIRY_CRITICAL_DAYS = 7
+# Vasilhame retornável (logística reversa): engradado de garrafa 600 ml e barril de chope.
+RETURNABLE = {'G600', 'BAR30'}
+EMPTIES_LIMIT = 15         # saldo de vasilhame em comodato acima do qual o PDV gera alerta
 # Casos-problema da demonstração (as demais entregas seguem a rota dentro do previsto):
 # destino, horas desde a coleta, parada onde a entrega ficou, atraso extra em um hub e ocorrência registrada.
 DEMO_CASES = {
@@ -135,7 +139,9 @@ def initialize():
         stock INTEGER NOT NULL, PRIMARY KEY (sku, lot));
         CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY,
         delivery_id INTEGER NOT NULL REFERENCES deliveries(id), sku TEXT NOT NULL, lot TEXT NOT NULL,
-        expiry TEXT NOT NULL, qty_ordered INTEGER NOT NULL, qty_delivered INTEGER);''')
+        expiry TEXT NOT NULL, qty_ordered INTEGER NOT NULL, qty_delivered INTEGER);
+        CREATE TABLE IF NOT EXISTS returns (delivery_id INTEGER PRIMARY KEY REFERENCES deliveries(id),
+        collected INTEGER NOT NULL);''')
         if con.execute('SELECT count(*) FROM deliveries').fetchone()[0]:
             return
         base = now()
@@ -163,6 +169,10 @@ def initialize():
                 short = 2 if i % 9 == 0 and n == 0 and qty > 2 else 0  # entregas parciais (falta no caminhão)
                 con.execute('INSERT INTO items(delivery_id,sku,lot,expiry,qty_ordered,qty_delivered) VALUES(?,?,?,?,?,?)',
                             (did, sku, lot, (base + timedelta(days=days)).date().isoformat(), qty, qty - short))
+            returnable = sum(q for (s_, q) in con.execute(
+                'SELECT sku, qty_delivered FROM items WHERE delivery_id=?', (did,)) if s_ in RETURNABLE)
+            missing = round(returnable * 0.4) if i % 8 in (0, 3) else 0  # PDVs que seguram vasilhame
+            con.execute('INSERT INTO returns VALUES(?,?)', (did, returnable - missing))
             route = ROUTES[destination]
             add_event(con, did, stamp(collected), 'Carregado', route[0][0], SEED_NOTES['Carregado'])
             moment = collected
@@ -184,6 +194,7 @@ def initialize():
 def reset_demo():
     """Apaga todos os registros e recria os dados fictícios de demonstração."""
     with session() as con:
+        con.execute('DELETE FROM returns')
         con.execute('DELETE FROM items')
         con.execute('DELETE FROM lots')
         con.execute('DELETE FROM events')
@@ -425,7 +436,7 @@ def analyze(row, history, current):
                open_incident=open_incident, open_loss=open_loss,
                alerts=[], alert_details=[], on_time=None, lead_hours=None,
                delay_hours=0, overdue_hours=0, hours_to_deadline=None, priority=0,
-               fill_rate=None, complete=None, otif=None)
+               fill_rate=None, complete=None, otif=None, empties_out=0, empties_in=0)
     row['route'] = trajectory(row, history, current)
     if delivered:
         delivered_at = datetime.fromisoformat(delivered)
@@ -438,6 +449,9 @@ def analyze(row, history, current):
         row['fill_rate'] = round(100 * served / ordered, 1) if ordered else None
         row['complete'] = served >= ordered
         row['otif'] = row['on_time'] and row['complete']
+        row['empties_out'] = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered']
+                                 for i in row['items'] if i['sku'] in RETURNABLE)
+        row['empties_in'] = min(row['empties_out'], row['collected_empties'] or 0)
         row['diagnosis'] = diagnose(row, current)
         return row
 
@@ -465,6 +479,27 @@ def analyze(row, history, current):
     return row
 
 
+def empties_balance(deliveries):
+    """Saldo de vasilhame em comodato por PDV (entregue cheio − recolhido vazio) e alerta nos pedidos em aberto."""
+    balance = {}
+    for d in deliveries:
+        if d['delivered']:
+            b = balance.setdefault(d['client'], {'client': d['client'], 'out': 0, 'in': 0})
+            b['out'] += d['empties_out']
+            b['in'] += d['empties_in']
+    for b in balance.values():
+        b['pending'] = b['out'] - b['in']
+        b['level'] = 'bad' if b['pending'] > EMPTIES_LIMIT else 'warn' if b['pending'] > 0 else 'good'
+    for d in deliveries:
+        pending = balance.get(d['client'], {}).get('pending', 0)
+        if not d['delivered'] and pending > EMPTIES_LIMIT:
+            d['alerts'].append('Recolher vasilhame do cliente')
+            d['alert_details'].append(dict(code='empties', severity='warning', title='Recolher vasilhame do cliente',
+                                           action=f'O PDV tem {pending} vasilhames em aberto: recolher nesta entrega.'))
+            d['priority'] = max(d['priority'], SEVERITY_RANK['warning'] * 1000)
+    return sorted((b for b in balance.values() if b['pending'] > 0), key=lambda b: -b['pending'])
+
+
 def compute_kpis(deliveries):
     total = len(deliveries)
     completed = [d for d in deliveries if d['delivered']]
@@ -477,6 +512,8 @@ def compute_kpis(deliveries):
     served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for d in completed for i in d['items'])
     items = [i for d in deliveries for i in d['items']]
     fefo_ok = sum(1 for i in items if i['fefo_ok'])
+    out = sum(d['empties_out'] for d in completed)
+    back = sum(d['empties_in'] for d in completed)
 
     def count(code):
         return sum(1 for d in deliveries if any(a['code'] == code for a in d['alert_details']))
@@ -485,6 +522,8 @@ def compute_kpis(deliveries):
         total=total, completed=n, in_progress=total - n, punctual=punctual, otif_count=otif,
         otif=round(100 * otif / n, 1) if n else None,
         boxes_ordered=ordered, boxes_served=served, fill_rate=round(100 * served / ordered, 1) if ordered else None,
+        empties_out=out, empties_in=back, empties_pending=out - back,
+        empties=round(100 * back / out, 1) if out else None,
         items=len(items), fefo_ok=fefo_ok, fefo=round(100 * fefo_ok / len(items), 1) if items else None,
         otd=round(100 * punctual / n, 1) if n else None,
         average_hours=round(sum(d['lead_hours'] for d in completed) / n, 1) if n else None,
@@ -500,6 +539,7 @@ def compute_kpis(deliveries):
         otd=target_level('otd', result['otd']),
         fill_rate=target_level('fill_rate', result['fill_rate']),
         fefo=target_level('fefo', result['fefo']),
+        empties=target_level('empties', result['empties']),
         average_hours=level(result['average_hours'], planned, planned * 1.25, False) if n else None,
         late=target_level('late', result['late']) if total else None,
         incidents=target_level('incidents', result['incidents']))
@@ -522,7 +562,7 @@ def scorecards(deliveries):
 def health(kpis):
     if not kpis['total']:
         return {'level': None, 'label': 'Sem dados', 'message': 'Nenhuma entrega no filtro selecionado.'}
-    names = {'otif': 'OTIF', 'fill_rate': 'fill rate', 'fefo': 'FEFO', 'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
+    names = {'otif': 'OTIF', 'fill_rate': 'fill rate', 'fefo': 'FEFO', 'empties': 'retorno de vasilhame', 'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
     bad = [names[k] for k, v in kpis['levels'].items() if v == 'bad']
     warn = [names[k] for k, v in kpis['levels'].items() if v == 'warn']
     if bad:
@@ -565,6 +605,7 @@ def snapshot(carrier='', start='', end=''):
         items = {}
         for item in con.execute('SELECT * FROM items ORDER BY id'):
             items.setdefault(item['delivery_id'], []).append(dict(item))
+        returns = dict(con.execute('SELECT delivery_id, collected FROM returns').fetchall())
     current = now()
     oldest = {}
     for lot in lots:  # lote que vence primeiro de cada SKU
@@ -584,16 +625,18 @@ def snapshot(carrier='', start='', end=''):
         if end and row['collected'][:10] > end:
             continue
         row['items'] = items.get(row['id'], [])
+        row['collected_empties'] = returns.get(row['id'])
         deliveries.append(analyze(row, events.get(row['id'], []), current))
+    balances = empties_balance(deliveries)
     kpis = compute_kpis(deliveries)
     cards = scorecards(deliveries)
     status = health(kpis)
     days = trend(deliveries)
     rules = {'stale_hours': STALE_HOURS, 'risk_hours': RISK_HOURS, 'critical_overdue_hours': CRITICAL_OVERDUE_HOURS,
-             'tolerance_hours': TOLERANCE_HOURS}
+             'tolerance_hours': TOLERANCE_HOURS, 'empties_limit': EMPTIES_LIMIT}
     spots = bottlenecks(deliveries)
     return {'deliveries': deliveries, 'kpis': kpis, 'health': status, 'carriers': cards, 'trend': days,
-            'bottlenecks': spots, 'routes': ROUTES, 'lots': lots,
+            'bottlenecks': spots, 'routes': ROUTES, 'lots': lots, 'empties_balance': balances,
             'expiry_rules': {'warn_days': EXPIRY_WARN_DAYS, 'critical_days': EXPIRY_CRITICAL_DAYS},
             'assistant': assistant.analyze(deliveries, kpis, status, cards, days, TARGETS, rules, INCIDENTS, spots),
             'incident_kinds': incident_kinds(deliveries), 'targets': TARGETS, 'rules': rules,
@@ -648,6 +691,11 @@ def create_event(data):
         if kind == TREATED and not incident_state(history)[0]:
             raise ValueError('Não há ocorrência em aberto nesta entrega.')
         add_event(con, did, stamp(when), kind, location, note)
+        if kind == 'Entregue' and str(data.get('empties', '')).strip():
+            collected = int(data['empties'])
+            if collected < 0:
+                raise ValueError('Vasilhame recolhido não pode ser negativo.')
+            con.execute('INSERT OR REPLACE INTO returns VALUES(?,?)', (did, collected))
 
 
 # ---------------------------------------------------------------- servidor HTTP

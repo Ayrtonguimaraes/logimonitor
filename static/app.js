@@ -29,7 +29,7 @@ const CHIPS = [
     ['done', 'Concluídas', d => Boolean(d.delivered)],
 ];
 const ALERT_TYPES = [['late', 'Atrasadas', 'prazo vencido'], ['risk', 'Em risco', 'vencem em breve'],
-                     ['stale', 'Sem atualização', 'sem registro recente'], ['incident', 'Ocorrências', 'sem tratativa']];
+                     ['stale', 'Sem atualização', 'sem registro recente'], ['incident', 'Ocorrências', 'sem tratativa'], ['empties', 'Vasilhame', 'recolher no cliente']];
 
 const state = {data: null, page: 'dashboard', chip: 'all', alertChip: 'all', assistIndex: 0, assistElapsed: 0, assistKey: null, carriers: new Set()};
 
@@ -211,8 +211,8 @@ const KPI_CARDS = (k, T) => [
      plain: k.average_hours === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.average_hours / 24)} dias da coleta à entrega`},
     {key: 'late', title: 'Entregas em atraso', value: k.late, level: k.levels.late, meta: `meta ${T.late.good}`,
      plain: k.late ? 'passaram do prazo e ainda não chegaram' : 'nenhuma entrega com prazo vencido'},
-    {key: 'incidents', title: 'Taxa de ocorrências', value: fmtNum(k.incidents, '%'), level: k.levels.incidents, meta: `meta ≤ ${T.incidents.good}%`,
-     plain: k.incident_count ? `≈ 1 de cada ${Math.round(k.total / k.incident_count)} entregas teve problema` : 'nenhuma entrega com problema'},
+    {key: 'empties', title: 'Retorno de vasilhame', value: fmtNum(k.empties, '%'), level: k.levels.empties, meta: `meta ≥ ${T.empties.good}%`,
+     plain: k.empties === null ? 'nenhum vasilhame entregue ainda' : k.empties_pending ? `${k.empties_pending} cascos/barris ainda nos clientes` : 'todo vasilhame voltou ao CD'},
 ];
 
 function renderCards({kpis: k, targets: T}) {
@@ -480,7 +480,7 @@ function renderConcepts({targets: T, rules, routes}) {
             <td class="num">${stops.reduce((sum, st) => sum + st[2], 0)} h</td></tr>`).join('')}</tbody></table>`;
     $('targets').innerHTML = `<table><thead><tr><th>Indicador</th><th>Verde</th><th>Amarelo</th><th>Vermelho</th></tr></thead><tbody>
         <tr><td>${T.otd.label}</td><td>≥ ${T.otd.good}%</td><td>${T.otd.warn}% a ${T.otd.good}% (exclusive)</td><td>&lt; ${T.otd.warn}%</td></tr>
-        ${['otif', 'fill_rate', 'fefo'].map(key => `<tr><td>${T[key].label}</td><td>≥ ${T[key].good}%</td><td>${T[key].warn}% a ${T[key].good}% (exclusive)</td><td>&lt; ${T[key].warn}%</td></tr>`).join('')}
+        ${['otif', 'fill_rate', 'fefo', 'empties'].map(key => `<tr><td>${T[key].label}</td><td>≥ ${T[key].good}%</td><td>${T[key].warn}% a ${T[key].good}% (exclusive)</td><td>&lt; ${T[key].warn}%</td></tr>`).join('')}
         <tr><td>Tempo médio de entrega</td><td>≤ prazo prometido médio</td><td>até 25% acima do prazo</td><td>mais de 25% acima</td></tr>
         <tr><td>${T.late.label}</td><td>${T.late.good}</td><td>1 a ${T.late.warn}</td><td>&gt; ${T.late.warn}</td></tr>
         <tr><td>${T.incidents.label}</td><td>≤ ${T.incidents.good}%</td><td>${T.incidents.good}% a ${T.incidents.warn}% (exclusive)</td><td>&gt; ${T.incidents.warn}%</td></tr></tbody></table>`;
@@ -508,6 +508,7 @@ const DRILLS = {
     otif: ['Pedidos fora do OTIF', 'Entregues com atraso ou com falta de caixas: são eles que puxam o OTIF para baixo.', d => d.delivered && !d.otif],
     avg: ['Entregas concluídas', 'Entregas usadas no cálculo do tempo médio.', d => d.delivered],
     late: ['Entregas em atraso', 'Da mais crítica para a menos crítica.', d => hasAlert(d, 'late')],
+    empties: ['Pedidos com vasilhame pendente', 'Entregues em que voltaram menos vasilhames do que foram entregues.', d => d.delivered && d.empties_in < d.empties_out],
     incidents: ['Entregas com ocorrência', 'Entregas com avaria, falta na carga ou tentativa sem sucesso.', d => d.had_incident],
 };
 
@@ -542,6 +543,17 @@ const levelPill = lv => `<span class="pill lv-${lv || 'none'}">${LEVEL_TEXT[lv] 
 
 function explainHtml(key) {
     const {kpis: k, targets: T, deliveries} = state.data;
+    if (key === 'empties') {
+        if (k.empties === null) return '<p>Nenhum vasilhame retornável entregue neste filtro.</p>';
+        const list = state.data.empties_balance;
+        return `${picto(Math.round(k.empties / 10))}<p>De cada 10 cascos e barris entregues cheios, cerca de <b>${Math.round(k.empties / 10)}</b> voltaram vazios ao CD.
+            O que não volta é patrimônio da distribuidora parado no cliente e falta de vasilhame para envasar de novo (logística reversa, ciclo fechado).</p>
+            <p class="formula">${k.empties_in} recolhidos ÷ ${k.empties_out} entregues × 100 = <b>${fmtNum(k.empties, '%')}</b></p>
+            <h3>Saldo em comodato por cliente</h3>
+            ${list.length ? `<table><thead><tr><th>Cliente</th><th>Entregues</th><th>Recolhidos</th><th>Em aberto</th></tr></thead><tbody>
+            ${list.map(b => `<tr><td>${esc(b.client)}</td><td>${b.out}</td><td>${b.in}</td><td>${levelPill(b.level)} ${b.pending}</td></tr>`).join('')}
+            </tbody></table><p class="muted small">Acima de ${state.data.rules.empties_limit} em aberto, os próximos pedidos do cliente recebem o alerta “Recolher vasilhame”.</p>` : '<p class="muted">Nenhum cliente com vasilhame em aberto.</p>'}`;
+    }
     if (key === 'otif') {
         if (k.otif === null) return '<p>Ainda não há pedidos entregues neste filtro.</p>';
         const on = Math.round(k.otif / 10);
@@ -691,7 +703,8 @@ function itemsHtml(d) {
         <div class="scroll"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Pedido</th>${d.delivered ? '<th>Entregue</th>' : ''}</tr></thead><tbody>
         ${d.items.map(i => `<tr><td>${esc(i.product)}</td><td>${esc(i.lot)}${i.fefo_ok ? '' : ' <span class="dl late" title="Havia lote com validade mais curta no CD">fora do FEFO</span>'}</td>
             <td>${new Date(i.expiry + 'T12:00').toLocaleDateString('pt-BR')}</td><td>${i.qty_ordered} cx</td>
-            ${d.delivered ? `<td>${i.qty_delivered ?? i.qty_ordered} cx</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+            ${d.delivered ? `<td>${i.qty_delivered ?? i.qty_ordered} cx</td>` : ''}</tr>`).join('')}</tbody></table></div>
+        ${d.delivered && d.empties_out ? `<p class="muted small">Vasilhame: ${d.empties_out} entregues cheios, ${d.empties_in} recolhidos vazios${d.empties_in < d.empties_out ? ` · <span class="dl late">${d.empties_out - d.empties_in} ficaram no cliente</span>` : ''}.</p>` : ''}`;
 }
 
 function detail(id) {
@@ -711,6 +724,7 @@ function detail(id) {
         <label>Evento<select name="kind" id="evkind">${kinds.map(k => `<option ${next && k === next.kind ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
         <label>Data e hora<input name="time" type="datetime-local" value="${localInput()}" max="${localInput()}" required></label>
         <label>Local<input name="location" id="evloc" maxlength="300" required placeholder="Ex.: Hub Salvador/BA"></label>
+        <label>Vasilhames recolhidos <small class="muted">(ao registrar Entregue)</small><input name="empties" type="number" min="0" step="1" placeholder="Ex.: 12"></label>
         <label>Observação<textarea name="note" maxlength="1000" rows="2"></textarea></label></div>
         <button class="submit">Salvar evento</button></form>`;
     openModal(`<h2 id="modaltitle">${esc(d.code)} <small class="muted">${esc(d.client)} · ${esc(d.carrier)}</small></h2>
