@@ -61,8 +61,6 @@ Para validar, cadastre uma entrega, adicione um evento e recarregue a página. C
 6. Cadastre uma entrega nova (o código é sugerido), registre eventos e exporte o CSV.
 7. Consulte **Conceitos e regras** para justificar metas, semáforo e alertas. Use *Restaurar dados de demonstração* (rodapé) para recomeçar.
 
-O detalhe do OTIF mostra NIF (pedidos incompletos), NOT (pedidos fora do prazo) e quatro grupos de pedidos para investigação. Os três indicadores usam a mesma base de entregas com quantidade confirmada por SKU. O OTD geral usa todas as entregas concluídas. O período seleciona pela data de carregamento. Em **Entregas**, a busca por lote mostra os pedidos associados, respeitando os filtros da tela.
-
 ## Apoio à decisão
 
 - **Metas e semáforo:** cada KPI é verde, amarelo ou vermelho conforme as metas (`TARGETS` em `app.py`): OTD ≥ 95% (amarelo ≥ 85%), ocorrências ≤ 5% (amarelo ≤ 10%), atrasos 0 (amarelo ≤ 3) e tempo médio comparado ao prazo prometido. Toda cor vem com texto.

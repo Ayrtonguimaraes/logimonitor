@@ -90,15 +90,11 @@
         <div id="trend"></div>
       </div>
     </div>
-    <div class="panel">
-      <div class="panel-head"><h3>Estoque e rastreabilidade</h3></div>
-      <div id="stock"></div>
-    </div>
   </section>
 
   <section id="deliveries" role="tabpanel" aria-labelledby="tab-deliveries" hidden>
     <div class="toolbar">
-      <label class="search"><span class="sr-only">Buscar código, cliente, destino ou lote</span><input id="search" type="search" placeholder="Buscar código, cliente, destino ou lote"></label>
+      <label class="search"><span class="sr-only">Buscar código, cliente ou destino</span><input id="search" type="search" placeholder="Buscar código, cliente ou destino"></label>
       <button type="button" id="new">+ Cadastrar entrega</button>
       <button type="button" id="export" class="ghost">Exportar CSV</button>
     </div>
@@ -136,10 +132,12 @@
     </div>
     <div class="panel">
       <h3>Indicadores</h3>
-      <p><b>OTIF:</b> pedidos entregues no prazo e completos em todos os SKUs ÷ pedidos avaliáveis × 100. A base inclui entregas com itens e quantidades confirmadas.</p>
-      <p><b>NIF:</b> pedidos incompletos ÷ avaliáveis × 100. <b>NOT:</b> pedidos entregues após o prazo ÷ avaliáveis × 100. Um pedido atrasado e incompleto conta nas duas taxas.</p>
-      <p><b>Fill rate:</b> unidades atendidas ÷ unidades pedidas × 100, nos pedidos avaliáveis. Excesso de um SKU não compensa falta de outro.</p>
-      <p><b>FEFO:</b> compara o lote expedido com o lote de validade mais próxima cadastrado para o SKU no CD.</p>
+      <p><b>OTIF (On Time In Full):</b> pedidos entregues no prazo <i>e</i> com todas as caixas pedidas ÷ pedidos entregues × 100. É o indicador principal de nível de serviço da distribuidora.</p>
+      <p><b>Fill rate:</b> caixas entregues ÷ caixas pedidas × 100, nos pedidos entregues. Mede faltas no caminhão (entregas parciais).</p>
+      <p><b>Aderência FEFO (First Expired, First Out):</b> itens expedidos do lote que vence primeiro no CD ÷ itens expedidos × 100. Evita que cerveja vença parada no estoque. Lotes com validade em até 30 dias aparecem como alerta (crítico em até 7).</p>
+      <p><b>OTIF (On Time In Full):</b> pedidos entregues no prazo <i>e</i> com todas as caixas pedidas ÷ pedidos entregues × 100. É o principal indicador de nível de serviço da distribuidora.</p>
+      <p><b>Fill rate:</b> caixas entregues ÷ caixas pedidas × 100, nos pedidos entregues. Mede faltas no caminhão (entregas parciais).</p>
+      <p><b>Aderência FEFO (First Expired, First Out):</b> itens expedidos do lote que vence primeiro no CD ÷ itens expedidos × 100. Evita cerveja vencendo parada no estoque. Lotes com validade em até 30 dias ficam em atenção (críticos em até 7).</p>
       <p><b>OTD (On-Time Delivery):</b> entregas concluídas até o prazo ÷ entregas concluídas × 100. Pendentes não entram no denominador. Sem entregas concluídas, o resultado é “—”.</p>
       <p><b>Tempo médio de entrega:</b> média das horas corridas entre coleta e entrega das entregas concluídas (inclui fins de semana). É comparado ao prazo prometido médio dessas mesmas entregas.</p>
       <p><b>Entregas em atraso:</b> entregas ainda não concluídas cujo prazo já venceu.</p>

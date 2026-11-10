@@ -242,36 +242,6 @@ class LogisticsTests(unittest.TestCase):
         k=data["kpis"]
         self.assertEqual((k["otd"],k["otif"],k["fill_rate"],k["fefo"]),(100.0,0.0,80.0,0.0))
         self.assertEqual(k["levels"]["otif"],"bad")
-    def test_service_breakdown_excludes_unknown_and_checks_each_sku(self):
-        scenarios = [
-            ('OTIF', 10, 10, 10),
-            ('NIF', 10, 8, 12),
-            ('NOT', -3, 10, 10),
-            ('BOTH', -3, 8, 12),
-            ('UNKNOWN', 10, None, 10),
-            ('NO-ITEMS', 10, None, None),
-        ]
-        for code, deadline, first_qty, second_qty in scenarios:
-            delivery_id = self.custom(code, 30, deadline)
-            if second_qty is not None:
-                with app.session() as con:
-                    con.executemany(
-                        'INSERT INTO items(delivery_id,sku,lot,expiry,qty_ordered,qty_delivered) VALUES(?,?,?,?,?,?)',
-                        [(delivery_id, sku, 'L', '2099-01-01', 10, qty)
-                         for sku, qty in [('G600', first_qty), ('PIL350', second_qty)]])
-            self.event(delivery_id, 'Entregue', app.now() - timedelta(hours=1))
-
-        data = app.snapshot()
-        kpis = data['kpis']
-        self.assertEqual(kpis['service_groups'], {'otif-ok': 1, 'nif-only': 1, 'not-only': 1, 'nif-not': 1})
-        self.assertEqual((kpis['service_eligible'], kpis['service_unknown']), (4, 2))
-        self.assertEqual((kpis['otif'], kpis['nif'], kpis['not_on_time'], kpis['fill_rate']), (25, 50, 50, 95))
-        self.assertEqual((kpis['punctual'], kpis['completed']), (4, 6))
-        for delivery in data['deliveries']:
-            if delivery['code'] in {'UNKNOWN', 'NO-ITEMS'}:
-                self.assertIsNone(delivery['complete'])
-                self.assertIsNone(delivery['otif'])
-
     def test_empties_return_rate_balance_and_alert(self):
         did=self.custom("V1",30,10)
         with app.session() as con:

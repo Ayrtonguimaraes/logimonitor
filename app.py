@@ -509,8 +509,7 @@ def analyze(row, history, current):
                open_incident=open_incident, open_loss=open_loss,
                alerts=[], alert_details=[], on_time=None, lead_hours=None,
                delay_hours=0, overdue_hours=0, hours_to_deadline=None, priority=0,
-               fill_rate=None, complete=None, otif=None, service_group=None,
-               ordered_units=0, served_units=0, empties_out=0, empties_in=0,
+               fill_rate=None, complete=None, otif=None, empties_out=0, empties_in=0,
                window=client_window(row['client']), in_window=None)
     row['route'] = trajectory(row, history, current)
     if delivered:
@@ -520,22 +519,11 @@ def analyze(row, history, current):
         if not row['on_time']:
             row['delay_hours'] = round(hours_between(deadline, delivered_at), 1)
         row['in_window'] = None if row['window'] is None else in_window(delivered_at, row['window'])
-        if row['items'] and all(item['qty_delivered'] is not None for item in row['items']):
-            ordered_by_sku = Counter()
-            served_by_sku = Counter()
-            for item in row['items']:
-                ordered_by_sku[item['sku']] += item['qty_ordered']
-                served_by_sku[item['sku']] += item['qty_delivered']
-            ordered = sum(ordered_by_sku.values())
-            if ordered > 0:
-                served = sum(min(qty, served_by_sku[sku]) for sku, qty in ordered_by_sku.items())
-                row.update(ordered_units=ordered, served_units=served, fill_rate=round(100 * served / ordered, 1))
-                row['complete'] = served == ordered
-                row['otif'] = row['on_time'] and row['complete']
-                if row['on_time']:
-                    row['service_group'] = 'otif-ok' if row['complete'] else 'nif-only'
-                else:
-                    row['service_group'] = 'not-only' if row['complete'] else 'nif-not'
+        ordered = sum(i['qty_ordered'] for i in row['items'])
+        served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for i in row['items'])
+        row['fill_rate'] = round(100 * served / ordered, 1) if ordered else None
+        row['complete'] = served >= ordered
+        row['otif'] = row['on_time'] and row['complete']
         row['empties_out'] = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered']
                                  for i in row['items'] if i['sku'] in RETURNABLE)
         row['empties_in'] = min(row['empties_out'], row['collected_empties'] or 0)
@@ -604,13 +592,9 @@ def compute_kpis(deliveries):
     punctual = sum(1 for d in completed if d['on_time'])
     delays = [d['delay_hours'] for d in completed if not d['on_time']]
     incidents = sum(1 for d in deliveries if d['had_incident'])
-    groups = Counter(d['service_group'] for d in completed if d['service_group'] is not None)
-    eligible = sum(groups.values())
-    otif = groups['otif-ok']
-    nif = groups['nif-only'] + groups['nif-not']
-    not_on_time = groups['not-only'] + groups['nif-not']
-    ordered = sum(d['ordered_units'] for d in completed)
-    served = sum(d['served_units'] for d in completed)
+    otif = sum(1 for d in completed if d['otif'])
+    ordered = sum(i['qty_ordered'] for d in completed for i in d['items'])
+    served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for d in completed for i in d['items'])
     items = [i for d in deliveries for i in d['items']]
     fefo_ok = sum(1 for i in items if i['fefo_ok'])
     windowed = [d for d in completed if d['in_window'] is not None]
@@ -623,10 +607,7 @@ def compute_kpis(deliveries):
 
     result = dict(
         total=total, completed=n, in_progress=total - n, punctual=punctual, otif_count=otif,
-        otif=round(100 * otif / eligible, 1) if eligible else None,
-        service_eligible=eligible, service_unknown=n - eligible, service_groups=dict(groups),
-        nif_count=nif, nif=round(100 * nif / eligible, 1) if eligible else None,
-        not_count=not_on_time, not_on_time=round(100 * not_on_time / eligible, 1) if eligible else None,
+        otif=round(100 * otif / n, 1) if n else None,
         boxes_ordered=ordered, boxes_served=served, fill_rate=round(100 * served / ordered, 1) if ordered else None,
         window_hit=hit, window_total=len(windowed), window_closing=count('window'),
         window=round(100 * hit / len(windowed), 1) if windowed else None,

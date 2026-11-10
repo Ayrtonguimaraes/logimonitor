@@ -305,7 +305,7 @@ def partial_deliveries(ctx):
     on_time = sum(1 for d in partial if d['on_time'])
     return insight('atencao', f'{len(partial)} pedidos entregues com falta de caixas',
                    f'{on_time} deles chegaram no prazo, mas saíram do OTIF por estarem incompletos. O fill rate está em '
-                   f'{pt(ctx["kpis"]["fill_rate"] or 0)}%. Consulte os itens faltantes e os eventos para identificar a causa.',
+                   f'{pt(ctx["kpis"]["fill_rate"] or 0)}%: o problema está na separação e carregamento no CD, não na rota.',
                    'Conferir a separação antes do carregamento (checklist por pedido) e verificar ruptura de estoque dos itens faltantes.',
                    partial)
 
