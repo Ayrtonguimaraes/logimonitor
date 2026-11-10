@@ -1,7 +1,7 @@
 """Assistente de insights: lê os dados da operação e escreve uma análise com recomendações.
 
 Não usa IA. Cada insight é uma regra analítica explícita aplicada às entregas do filtro
-(concentração de atrasos, simulação de troca de transportadora, tendência etc.). Por isso
+(concentração de atrasos, simulação de troca de frota, tendência etc.). Por isso
 o resultado é reproduzível e cada número pode ser conferido nas outras telas.
 """
 from collections import Counter
@@ -41,7 +41,7 @@ def has(delivery, code):
 def insight(level, title, analysis, action, deliveries=(), carrier='', alert=''):
     ranked = sorted(deliveries, key=lambda d: -d['priority'])
     return {'nivel': level, 'titulo': title, 'analise': analysis, 'acao': action,
-            'entregas': [d['code'] for d in ranked[:MAX_CODES]], 'transportadora': carrier, 'alerta': alert}
+            'entregas': [d['code'] for d in ranked[:MAX_CODES]], 'frota': carrier, 'alerta': alert}
 
 
 # ---------------------------------------------------------------- regras analíticas
@@ -52,8 +52,8 @@ def lost_cargo(ctx):
         return None
     n = len(lost)
     return insight('critico', f'{n} {plural(n, "carga extraviada", "cargas extraviadas")} sem solução',
-                   'Extravio é a ocorrência mais grave: além do atraso, a mercadoria pode não chegar ao cliente.',
-                   'Acionar hoje a transportadora e o seguro e combinar com o cliente o reenvio ou a indenização.',
+                   'Falta na carga é a ocorrência mais grave: além do atraso, a mercadoria pode não chegar ao cliente.',
+                   'Acionar hoje a frota e o seguro e combinar com o cliente o reenvio ou a indenização.',
                    lost)
 
 
@@ -78,7 +78,7 @@ def route_bottleneck(ctx):
 
 
 def late_by_destination(ctx):
-    """Atrasos concentrados em um destino apontam gargalo de rota, não de transportadora."""
+    """Atrasos concentrados em um destino apontam gargalo de rota, não de frota."""
     deliveries = ctx['deliveries']
     late = [d for d in deliveries if has(d, 'late')]
     if len(late) < 2:
@@ -91,21 +91,21 @@ def late_by_destination(ctx):
     carriers = sorted({d['carrier'] for d in group})
     volume = 100 * sum(1 for d in deliveries if d['destination'] == destination) / len(deliveries)
     if len(carriers) > 1:
-        cause = (f'O padrão aparece em {len(carriers)} transportadoras diferentes, então o gargalo provável é a rota '
-                 'ou a entrega local, e não uma transportadora específica.')
+        cause = (f'O padrão aparece em {len(carriers)} frotas diferentes, então o gargalo provável é a rota '
+                 'ou a entrega local, e não uma frota específica.')
     else:
-        cause = f'Todas são da {carriers[0]}, o que aponta para a operação dessa transportadora nessa rota.'
+        cause = f'Todas são da {carriers[0]}, o que aponta para a operação dessa frota nessa rota.'
     return insight(
         'critico', f'{pt(share, 0)}% dos atrasos vão para {destination}',
         f'{count} das {len(late)} entregas atrasadas têm destino {destination}, que representa só {pt(volume, 0)}% '
         f'do volume. {cause} A mais antiga está atrasada há {duration(max(d["overdue_hours"] for d in group))}.',
-        f'Levantar com as transportadoras o que está travando as entregas em {destination} (acesso, janela de '
+        f'Levantar com as frotas o que está travando as entregas em {destination} (acesso, janela de '
         'recebimento, hub) e avisar esses clientes sobre a nova previsão.',
         group)
 
 
 def late_by_carrier(ctx):
-    """Transportadora com fatia de atrasos bem maior que sua fatia de volume."""
+    """Frota com fatia de atrasos bem maior que sua fatia de volume."""
     deliveries = ctx['deliveries']
     late = [d for d in deliveries if has(d, 'late')]
     if len(late) < 3:
@@ -122,7 +122,7 @@ def late_by_carrier(ctx):
         return None
     _, carrier, group, late_share, volume_share = best
     analysis = ('A participação nos atrasos é desproporcional ao volume transportado, o que indica problema de nível '
-                'de serviço dessa transportadora.')
+                'de serviço dessa frota.')
     if carrier == best_carrier(ctx):
         analysis += (' Cuidado: ela tem o melhor OTD entre as entregas concluídas, mas os atrasos em aberto ainda não '
                      'entram nesse cálculo. O OTD dela deve cair quando essas entregas forem concluídas.')
@@ -150,7 +150,7 @@ def incidents_blocking(ctx):
         'critico' if blocked and 2 * len(blocked) >= n else 'atencao',
         f'{n} {plural(n, "ocorrência", "ocorrências")} sem tratativa' + (f', {len(blocked)} já em atraso' if blocked else ''),
         analysis,
-        'Abrir tratativa para cada ocorrência (contato com a transportadora, reembalagem ou reenvio) e registrar '
+        'Abrir tratativa para cada ocorrência (contato com a frota, reembalagem ou reenvio) e registrar '
         '"Ocorrência tratada" no histórico.',
         open_, alert='incident')
 
@@ -167,7 +167,7 @@ def predicted_late(ctx):
         'atencao', f'{n} {plural(n, "entrega ainda está", "entregas ainda estão")} no prazo, mas com chegada prevista depois dele',
         f'Pelo ritmo atual do trajeto, a previsão de chegada já passa do prazo (em até {duration(worst)}). '
         'O atraso ainda não aconteceu, então dá para agir antes.',
-        'Pedir à transportadora prioridade no trecho atual ou avisar o cliente com antecedência sobre a nova previsão.',
+        'Pedir à frota prioridade no trecho atual ou avisar o cliente com antecedência sobre a nova previsão.',
         late_eta)
 
 
@@ -180,7 +180,7 @@ def at_risk(ctx):
     return insight(
         'atencao', f'{n} {plural(n, "entrega vence", "entregas vencem")} nas próximas {ctx["rules"]["risk_hours"]} h sem ter saído para entrega',
         f'O prazo mais próximo vence em {duration(soonest)}. Ainda é possível evitar o atraso.',
-        'Confirmar hoje com a transportadora a saída para entrega; sem garantia, avisar o cliente antes do prazo vencer.',
+        'Confirmar hoje com a frota a saída para entrega; sem garantia, avisar o cliente antes do prazo vencer.',
         risk, alert='risk')
 
 
@@ -199,7 +199,7 @@ def stale_tracking(ctx):
 
 
 def carrier_switch(ctx):
-    """Simulação: e se as entregas da pior transportadora tivessem a pontualidade da melhor?"""
+    """Simulação: e se as entregas da pior frota tivessem a pontualidade da melhor?"""
     rated = [c for c in ctx['carriers'] if c['otd'] is not None and c['completed'] >= 3]
     kpis = ctx['kpis']
     if len(rated) < 2 or not kpis['completed']:
@@ -241,11 +241,11 @@ def trend_shift(ctx):
     if r - b <= -10:
         return insight('atencao', f'Pontualidade caiu nos últimos 3 dias: de {pt(b)}% para {pt(r)}%',
                        'A queda recente indica um problema novo, que ainda pode ser contido antes de virar tendência.',
-                       'Comparar as entregas concluídas fora do prazo nesses dias (transportadora e destino) para achar a causa.')
+                       'Comparar as entregas concluídas fora do prazo nesses dias (frota e destino) para achar a causa.')
     if r - b >= 10:
         return insight('oportunidade', f'Pontualidade melhorou nos últimos 3 dias: de {pt(b)}% para {pt(r)}%',
                        'A melhora recente mostra que as ações em curso estão surtindo efeito.',
-                       'Identificar o que mudou (transportadora, rota ou processo) e manter.')
+                       'Identificar o que mudou (frota, rota ou processo) e manter.')
     return None
 
 
@@ -265,11 +265,53 @@ def lead_time(ctx):
     return insight(
         'atencao', f'Tempo médio de {pt(avg)} h passa do prazo prometido de {pt(planned)} h',
         'O prazo oferecido ao cliente é menor do que a operação consegue cumprir, então os atrasos tendem a se repetir.',
-        'Revisar o prazo prometido aos clientes ou exigir lead time menor das transportadoras.')
+        'Revisar o prazo prometido aos clientes ou exigir lead time menor das frotas.')
+
+
+def expiring_lots(ctx):
+    """Lote no CD perto do vencimento: aplicar FEFO na próxima carga."""
+    lots = sorted((l for l in ctx['lots'] if l['level'] != 'good'), key=lambda l: l['days_left'])
+    if not lots:
+        return None
+    lot = lots[0]
+    boxes = sum(l['stock'] for l in lots)
+    return insight('critico' if lot['level'] == 'bad' else 'atencao',
+                   f'Lote {lot["lot"]} vence em {lot["days_left"]} dias com {lot["stock"]} caixas no CD',
+                   f'{len(lots)} {plural(len(lots), "lote vence", "lotes vencem")} nos próximos {ctx["rules"]["expiry_warn_days"]} dias '
+                   f'({boxes} caixas). O mais urgente é {lot["product"]}. Cerveja vencida vira perda total.',
+                   'Priorizar esses lotes na separação das próximas cargas (FEFO) e, se sobrar, oferecer em promoção aos PDVs de maior giro.')
+
+
+def empties_holders(ctx):
+    """PDVs que concentram vasilhame não devolvido (logística reversa)."""
+    over = [b for b in ctx['empties_balance'] if b['level'] == 'bad']
+    if not over:
+        return None
+    total = sum(b['pending'] for b in ctx['empties_balance'])
+    top = over[0]
+    group = [d for d in ctx['deliveries'] if d['client'] in {b['client'] for b in over} and not d['delivered']]
+    return insight('atencao', f'{len(over)} {plural(len(over), "cliente segura", "clientes seguram")} vasilhame acima do limite',
+                   f'{top["client"]} tem {top["pending"]} vasilhames em aberto, de {total} fora do CD. Casco parado no cliente '
+                   'falta para o envase e é patrimônio da distribuidora.',
+                   'Recolher o vasilhame na próxima entrega desses clientes e, se persistir, cobrar o casco no próximo pedido.',
+                   group)
+
+
+def partial_deliveries(ctx):
+    """Entregas parciais: o OTIF cai mesmo com o caminhão chegando no horário."""
+    partial = [d for d in ctx['deliveries'] if d['delivered'] and d['complete'] is False]
+    if len(partial) < 2:
+        return None
+    on_time = sum(1 for d in partial if d['on_time'])
+    return insight('atencao', f'{len(partial)} pedidos entregues com falta de caixas',
+                   f'{on_time} deles chegaram no prazo, mas saíram do OTIF por estarem incompletos. O fill rate está em '
+                   f'{pt(ctx["kpis"]["fill_rate"] or 0)}%: o problema está na separação e carregamento no CD, não na rota.',
+                   'Conferir a separação antes do carregamento (checklist por pedido) e verificar ruptura de estoque dos itens faltantes.',
+                   partial)
 
 
 RULES = [lost_cargo, route_bottleneck, late_by_destination, late_by_carrier, incidents_blocking, predicted_late, at_risk, stale_tracking,
-         carrier_switch, trend_shift, lead_time]
+         carrier_switch, trend_shift, lead_time, expiring_lots, empties_holders, partial_deliveries]
 
 
 def summary(ctx, insights):
@@ -288,9 +330,10 @@ def summary(ctx, insights):
     return ' '.join(parts)
 
 
-def analyze(deliveries, kpis, health, carriers, trend, targets, rules, incident_types, bottlenecks=()):
+def analyze(deliveries, kpis, health, carriers, trend, targets, rules, incident_types, bottlenecks=(), lots=(), empties_balance=()):
     ctx = dict(deliveries=deliveries, kpis=kpis, health=health, carriers=carriers, trend=trend,
-               targets=targets, rules=rules, incident_types=incident_types, bottlenecks=list(bottlenecks))
+               targets=targets, rules=rules, incident_types=incident_types, bottlenecks=list(bottlenecks),
+               lots=list(lots), empties_balance=list(empties_balance))
     if not deliveries:
         return {'resumo': summary(ctx, []), 'insights': []}
     found = [result for rule in RULES if (result := rule(ctx))]

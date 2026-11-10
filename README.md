@@ -1,4 +1,4 @@
-# LogiMonitor
+# LogiMonitor Bebidas
 
 Projeto acadêmico de monitoramento de KPIs, rastreabilidade e alertas logísticos.
 
@@ -47,31 +47,33 @@ O banco `dados.sqlite3` é criado automaticamente com 60 entregas fictícias, co
 
 A aplicação hospedada usa o horário de Recife. A URL e a senha podem ser compartilhadas com o grupo. Todos os usuários autenticados trabalham sobre a mesma base, inclusive ao restaurar os dados de demonstração. O banco SQLite que já existe no computador é independente da base hospedada.
 
+Ao atualizar uma base existente, o aplicativo cria as tabelas de lotes, itens e vasilhames e preserva as entregas e seu histórico. Pedidos antigos continuam disponíveis, com os nomes dos eventos adaptados à tela da distribuidora. Os novos dados de demonstração são gerados em uma base vazia ou ao selecionar explicitamente **Restaurar dados de demonstração**, que apaga os registros da base selecionada.
+
 Para validar, cadastre uma entrega, adicione um evento e recarregue a página. Confirme que o registro aparece também em outra sessão autenticada.
 
 ## Demonstração
 
-1. Abra o **Painel de decisão**: a faixa informa se a operação está dentro das metas e o **Assistente de insights** resume a situação e lista as ações em ordem de urgência. Filtre uma transportadora e veja a análise mudar.
+1. Abra o **Painel de decisão**: a faixa informa se a operação está dentro das metas e o **Assistente de insights** resume a situação e lista as ações em ordem de urgência. Filtre uma frota e veja a análise mudar.
 2. Clique em um indicador (por exemplo, *Entregas em atraso*) para ver quais entregas o compõem.
-3. Compare as transportadoras no **ranking** e clique no nome de uma delas para filtrar.
-4. Abra a **Central de alertas**, clique no bloco **Atrasadas** e use **Copiar cobrança** de uma transportadora (mensagem única com todas as pendências dela).
-5. Abra uma entrega atrasada (ex.: LOG0012): veja o trajeto, o trecho de maior atraso e a previsão de chegada. Registre a próxima movimentação (o formulário já vem com a próxima parada da rota) e veja os indicadores serem recalculados.
+3. Compare as frotas no **ranking** e clique no nome de uma delas para filtrar.
+4. Abra a **Central de alertas**, clique no bloco **Atrasadas** e use **Copiar cobrança** de uma frota (mensagem única com todas as pendências dela).
+5. Abra uma entrega atrasada (ex.: PED0012): veja o trajeto, o trecho de maior atraso e a previsão de chegada. Registre a próxima movimentação (o formulário já vem com a próxima parada da rota) e veja os indicadores serem recalculados.
 6. Cadastre uma entrega nova (o código é sugerido), registre eventos e exporte o CSV.
 7. Consulte **Conceitos e regras** para justificar metas, semáforo e alertas. Use *Restaurar dados de demonstração* (rodapé) para recomeçar.
 
 ## Apoio à decisão
 
 - **Metas e semáforo:** cada KPI é verde, amarelo ou vermelho conforme as metas (`TARGETS` em `app.py`): OTD ≥ 95% (amarelo ≥ 85%), ocorrências ≤ 5% (amarelo ≤ 10%), atrasos 0 (amarelo ≤ 3) e tempo médio comparado ao prazo prometido. Toda cor vem com texto.
-- **Alertas com severidade:** *Entrega atrasada* (alto; crítico se atrasada há mais de 24 h), *Risco de atraso* (prazo em até 12 h e ainda não saiu para entrega), *Sem atualização* (mais de 24 h) e *Ocorrência* (alto; crítico em caso de extravio). Entregas são ordenadas por prioridade.
-- **Diagnóstico por cenário:** toda entrega com problema mostra o cenário (saída do CD, transferência entre hubs, retenção no hub, última milha, avaria, tentativa sem sucesso, extravio ou entregue com atraso), **onde está o atraso**, o impacto no prazo, os passos recomendados e quem acionar. Aparece no detalhe da entrega e na Central de alertas.
+- **Alertas com severidade:** *Entrega atrasada* (alto; crítico se atrasada há mais de 24 h), *Risco de atraso* (prazo em até 12 h e ainda não saiu para entrega), *Sem atualização* (mais de 24 h) e *Ocorrência* (alto; crítico em caso de falta na carga). Entregas são ordenadas por prioridade.
+- **Diagnóstico por cenário:** toda entrega com problema mostra o cenário (saída do CD, transferência entre hubs, retenção no hub, última milha, avaria, tentativa sem sucesso, falta na carga ou entregue com atraso), **onde está o atraso**, o impacto no prazo, os passos recomendados e quem acionar. Aparece no detalhe da entrega e na Central de alertas.
 - **Trajeto da entrega:** ao abrir uma entrega, cada parada da rota aparece com o tempo real de cada trecho comparado ao previsto, o ponto de **maior atraso** destacado, onde a carga está agora e a **previsão de chegada** comparada ao prazo. As rotas planejadas (fictícias) ficam em `ROUTES`, no `app.py`.
 - **Entregas ao vivo:** diagrama das rotas (estilo mapa de metrô) no painel principal. Cada destino é uma linha com os hubs espaçados pelas horas previstas; cada entrega em andamento aparece na posição estimada pelo último registro e pelo tempo do trecho, colorida por status. Entregas paradas num hub viram um balão com a contagem. Clique para abrir o trajeto.
 - **Onde as entregas atrasam:** ranking dos pontos do trajeto que mais acumulam horas além do previsto, somando todas as entregas.
 - **Métricas explicadas:** cada indicador tem uma frase simples (ex.: “≈ 9 de cada 10 chegam no prazo”); ao clicar, mostra a conta com os números reais, um pictograma, onde o tempo passa por etapa da rota e onde estão as entregas atrasadas.
 - **Ocorrência tratada:** novo evento que encerra o alerta de ocorrência sem apagar o histórico; a taxa de ocorrências continua contando a entrega.
-- **Ranking de transportadoras** por OTD, com tempo médio, atrasos, risco e ocorrências.
+- **Ranking de frotas** por OTD, com tempo médio, atrasos, risco e ocorrências.
 - **Assistente de insights** com resumo e recomendações (ver abaixo), tendência de OTD por dia e ocorrências por tipo.
-- **Mensagem pronta** para cobrar a transportadora, atualização automática a cada 60 s e contador de alertas na aba.
+- **Mensagem pronta** para cobrar a frota, atualização automática a cada 60 s e contador de alertas na aba.
 
 ## Assistente de insights
 
@@ -79,15 +81,15 @@ O painel principal traz o **Assistente de insights** (`assistant.py`): até 6 re
 
 | Regra | O que verifica | Decisão que apoia |
 |---|---|---|
-| Atrasos por destino | 50% ou mais dos atrasos em um destino | Separar problema de rota de problema de transportadora |
-| Atrasos por transportadora | Fatia de atrasos 15 pontos acima da fatia de volume | Cobrar nível de serviço do fornecedor |
+| Atrasos por destino | 50% ou mais dos atrasos em um destino | Separar problema de rota de problema de frota |
+| Atrasos por frota | Fatia de atrasos 15 pontos acima da fatia de volume | Cobrar nível de serviço do fornecedor |
 | Ocorrências travando entregas | Ocorrências sem tratativa e quantas já atrasaram | Priorizar tratativas |
 | Risco de atraso | Prazo próximo e entrega ainda não saiu | Agir antes do atraso |
-| Rastreabilidade | Entregas sem atualização, por transportadora | Cobrar registro de movimentação |
-| Simulação de transportadora | OTD geral se a pior tivesse a pontualidade da melhor | Avaliar redistribuição de volume |
+| Rastreabilidade | Entregas sem atualização, por frota | Cobrar registro de movimentação |
+| Simulação de frota | OTD geral se a pior tivesse a pontualidade da melhor | Avaliar redistribuição de volume |
 | Tendência | OTD dos últimos 3 dias contra os anteriores | Detectar piora recente |
 | Prazo prometido | Tempo médio contra prazo médio prometido | Rever prazo ou tratar exceções |
-| Extravio | Extravio sem tratativa | Acionar transportadora e seguro |
+| Falta na carga | Falta na carga sem tratativa | Acionar frota e seguro |
 | Gargalo do trajeto | Ponto da rota com mais horas além do previsto | Saber onde agir na operação |
 | Previsão de atraso | Entrega ainda no prazo com chegada prevista depois dele | Agir antes do atraso |
 

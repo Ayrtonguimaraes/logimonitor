@@ -20,7 +20,7 @@ const localInput = (offsetHours = 0) => {
 
 const LEVEL_TEXT = {good: 'Dentro da meta', warn: 'Atenção', bad: 'Fora da meta'};
 const SEVERITY = {critical: {label: 'Crítico', rank: 3}, high: {label: 'Alto', rank: 2}, warning: {label: 'Atenção', rank: 1}};
-const INCIDENTS = ['Avaria', 'Extravio', 'Tentativa sem sucesso'];
+const INCIDENTS = ['Avaria', 'Falta na carga', 'Cliente fechado'];
 const PAGES = ['dashboard', 'deliveries', 'alerts', 'concepts'];
 
 const hasAlert = (d, code) => d.alert_details.some(a => a.code === code);
@@ -34,7 +34,7 @@ const CHIPS = [
     ['done', 'Concluídas', d => Boolean(d.delivered)],
 ];
 const ALERT_TYPES = [['late', 'Atrasadas', 'prazo vencido'], ['risk', 'Em risco', 'vencem em breve'],
-                     ['stale', 'Sem atualização', 'sem registro recente'], ['incident', 'Ocorrências', 'sem tratativa']];
+                     ['stale', 'Sem atualização', 'sem registro recente'], ['incident', 'Ocorrências', 'sem tratativa'], ['empties', 'Vasilhame', 'recolher no cliente'], ['window', 'Janela', 'horário do PDV']];
 
 const state = {data: null, page: 'dashboard', chip: 'all', alertChip: 'all', assistIndex: 0, assistElapsed: 0, assistKey: null, carriers: new Set()};
 
@@ -159,7 +159,7 @@ function showInsight(index, announce = false) {
     state.assistIndex = (index + items.length) % items.length;
     const item = items[state.assistIndex];
     const n = item.entregas.length;
-    const target = n ? `Ver ${n} ${n === 1 ? 'entrega' : 'entregas'}` : item.transportadora ? `Ver ${item.transportadora}` : item.alerta ? 'Ver alertas' : '';
+    const target = n ? `Ver ${n} ${n === 1 ? 'entrega' : 'entregas'}` : item.frota ? `Ver ${item.frota}` : item.alerta ? 'Ver alertas' : '';
     $('assistcard').setAttribute('aria-live', announce ? 'polite' : 'off');
     $('assistcard').innerHTML = `<article class="insight-card ${item.nivel}">
         <span class="tag-level ${item.nivel}">${ASSIST_LEVEL_TEXT[item.nivel]}</span>
@@ -201,23 +201,23 @@ function assistDrill(index) {
         const list = state.data.deliveries.filter(d => item.entregas.includes(d.code));
         openModal(`<h2 id="modaltitle">${esc(item.titulo)}</h2><p>${esc(item.analise)}</p>
             <p class="todo-box"><b>Ação recomendada:</b> ${esc(item.acao)}</p><div class="scroll">${listHtml(list)}</div>`);
-    } else if (item.transportadora) {
-        go({view: 'deliveries', carrier: item.transportadora});
+    } else if (item.frota) {
+        go({view: 'deliveries', carrier: item.frota});
     } else {
         go({view: 'alerts', filter: item.alerta});
     }
 }
 
 const KPI_CARDS = (k, T) => [
-    {key: 'otd', title: 'Entregas no prazo (OTD)', value: fmtNum(k.otd, '%'), level: k.levels.otd, meta: `meta ≥ ${T.otd.good}%`,
-     plain: k.otd === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.otd / 10)} de cada 10 chegam no prazo`},
+    {key: 'otif', title: 'No prazo e completo (OTIF)', value: fmtNum(k.otif, '%'), level: k.levels.otif, meta: `meta ≥ ${T.otif.good}%`,
+     plain: k.otif === null ? 'nenhum pedido entregue ainda' : `≈ ${fmtNum(k.otif / 10)} de cada 10 pedidos chegam no prazo e sem faltar nada`},
     {key: 'avg', title: 'Tempo médio de entrega', value: fmtNum(k.average_hours, ' h'), level: k.levels.average_hours,
      meta: k.planned_hours === null ? 'sem entregas concluídas' : `prazo médio ${fmtNum(k.planned_hours, ' h')}`,
      plain: k.average_hours === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.average_hours / 24)} dias da coleta à entrega`},
-    {key: 'late', title: 'Entregas em atraso', value: k.late, level: k.levels.late, meta: `meta ${T.late.good}`,
-     plain: k.late ? 'passaram do prazo e ainda não chegaram' : 'nenhuma entrega com prazo vencido'},
-    {key: 'incidents', title: 'Taxa de ocorrências', value: fmtNum(k.incidents, '%'), level: k.levels.incidents, meta: `meta ≤ ${T.incidents.good}%`,
-     plain: k.incident_count ? `≈ 1 de cada ${Math.round(k.total / k.incident_count)} entregas teve problema` : 'nenhuma entrega com problema'},
+    {key: 'window', title: 'Entregas na janela', value: fmtNum(k.window, '%'), level: k.levels.window, meta: `meta ≥ ${T.window.good}%`,
+     plain: k.window === null ? 'nenhuma entrega com janela concluída' : k.window_closing ? `${k.window_closing} em rota com a janela fechando ou fechada` : `≈ ${fmtNum(k.window / 10)} de cada 10 chegam no horário do PDV`},
+    {key: 'empties', title: 'Retorno de vasilhame', value: fmtNum(k.empties, '%'), level: k.levels.empties, meta: `meta ≥ ${T.empties.good}%`,
+     plain: k.empties === null ? 'nenhum vasilhame entregue ainda' : k.empties_pending ? `${k.empties_pending} cascos/barris ainda nos clientes` : 'todo vasilhame voltou ao CD'},
 ];
 
 function renderCards({kpis: k, targets: T}) {
@@ -289,7 +289,7 @@ function renderLiveMap({routes, deliveries}) {
             if (flowing.has(i)) layers.legs += `<line x1="${xs[i - 1]}" y1="${y}" x2="${xs[i]}" y2="${y}" class="m-flow"/>`;
         }
         plan.forEach((st, i) => {
-            const minor = st[1] === 'Saiu para entrega';
+            const minor = st[1] === 'Saiu para o cliente';
             const label = i === 0 ? 'CD Recife' : st[1] === 'Entregue' ? 'Cliente' : minor ? '' : shortPlace(st[0]);
             layers.stations += `<g class="m-station ${minor ? 'minor' : ''}"><title>${esc(st[0])} · ${STEP_LABEL[st[1]]}${i ? ` · ${cum[i]} h previstas desde a coleta` : ''}</title>
                 <circle cx="${xs[i]}" cy="${y}" r="${minor ? 3 : 5}"/>${label ? `<text x="${xs[i]}" y="${y + 21}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`;
@@ -355,7 +355,7 @@ function spotDrill(index) {
 function renderScorecard({carriers, targets: T}) {
     if (!carriers.length) { $('scorecard').innerHTML = '<p class="empty">Sem dados no filtro.</p>'; return; }
     const goal = T.otd.good;
-    $('scorecard').innerHTML = `<table class="compact"><thead><tr><th>Transportadora</th><th>OTD</th>
+    $('scorecard').innerHTML = `<table class="compact"><thead><tr><th>Frota</th><th>OTD</th>
         <th class="num">Atrasos</th><th class="num">Ocorr.</th></tr></thead><tbody>${carriers.map(c => `<tr>
         <td><button type="button" class="name" data-carrier="${esc(c.carrier)}">${esc(c.carrier)}</button></td>
         <td><div class="otd"><b class="lv-text-${c.levels.otd || 'none'}">${fmtNum(c.otd, '%')}</b>
@@ -485,6 +485,7 @@ function renderConcepts({targets: T, rules, routes}) {
             <td class="num">${stops.reduce((sum, st) => sum + st[2], 0)} h</td></tr>`).join('')}</tbody></table>`;
     $('targets').innerHTML = `<table><thead><tr><th>Indicador</th><th>Verde</th><th>Amarelo</th><th>Vermelho</th></tr></thead><tbody>
         <tr><td>${T.otd.label}</td><td>≥ ${T.otd.good}%</td><td>${T.otd.warn}% a ${T.otd.good}% (exclusive)</td><td>&lt; ${T.otd.warn}%</td></tr>
+        ${['otif', 'fill_rate', 'fefo', 'window', 'empties'].map(key => `<tr><td>${T[key].label}</td><td>≥ ${T[key].good}%</td><td>${T[key].warn}% a ${T[key].good}% (exclusive)</td><td>&lt; ${T[key].warn}%</td></tr>`).join('')}
         <tr><td>Tempo médio de entrega</td><td>≤ prazo prometido médio</td><td>até 25% acima do prazo</td><td>mais de 25% acima</td></tr>
         <tr><td>${T.late.label}</td><td>${T.late.good}</td><td>1 a ${T.late.warn}</td><td>&gt; ${T.late.warn}</td></tr>
         <tr><td>${T.incidents.label}</td><td>≤ ${T.incidents.good}%</td><td>${T.incidents.good}% a ${T.incidents.warn}% (exclusive)</td><td>&gt; ${T.incidents.warn}%</td></tr></tbody></table>`;
@@ -492,7 +493,7 @@ function renderConcepts({targets: T, rules, routes}) {
         <tr><td>Entrega atrasada</td><td>Prazo vencido e entrega não concluída</td><td>Alto; Crítico se atrasada há mais de ${rules.critical_overdue_hours} h</td></tr>
         <tr><td>Risco de atraso</td><td>Faltam ${rules.risk_hours} h ou menos para o prazo e a entrega ainda não saiu para entrega</td><td>Atenção</td></tr>
         <tr><td>Sem atualização</td><td>Último registro há mais de ${rules.stale_hours} h</td><td>Atenção</td></tr>
-        <tr><td>Ocorrência</td><td>Avaria, extravio ou tentativa sem sucesso ainda não tratada</td><td>Alto; Crítico no caso de extravio</td></tr></tbody></table>`;
+        <tr><td>Ocorrência</td><td>Avaria, falta na carga ou tentativa sem sucesso ainda não tratada</td><td>Alto; Crítico no caso de falta na carga</td></tr></tbody></table>`;
 }
 
 /* ------------------------------------------------------------ modais */
@@ -504,15 +505,17 @@ function openModal(html) {
 
 function listHtml(list) {
     if (!list.length) return '<p class="empty">Nenhuma entrega neste grupo.</p>';
-    return `<table><thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / transportadora</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
+    return `<table><thead><tr><th>Prioridade</th><th>Código / cliente</th><th>Rota / frota</th><th>Prazo</th><th>Situação</th><th>Ação</th></tr></thead>
         <tbody>${[...list].sort(byPriority).map(rowHtml).join('')}</tbody></table>`;
 }
 
 const DRILLS = {
-    otd: ['Concluídas fora do prazo', 'São estas entregas que puxam o OTD para baixo.', d => d.delivered && !d.on_time],
+    otif: ['Pedidos fora do OTIF', 'Entregues com atraso ou com falta de caixas: são eles que puxam o OTIF para baixo.', d => d.delivered && !d.otif],
     avg: ['Entregas concluídas', 'Entregas usadas no cálculo do tempo médio.', d => d.delivered],
     late: ['Entregas em atraso', 'Da mais crítica para a menos crítica.', d => hasAlert(d, 'late')],
-    incidents: ['Entregas com ocorrência', 'Entregas com avaria, extravio ou tentativa sem sucesso.', d => d.had_incident],
+    window: ['Fora da janela ou em risco', 'Entregues fora do horário de recebimento e pedidos em rota com a janela fechando.', d => d.in_window === false || hasAlert(d, 'window')],
+    empties: ['Pedidos com vasilhame pendente', 'Entregues em que voltaram menos vasilhames do que foram entregues.', d => d.delivered && d.empties_in < d.empties_out],
+    incidents: ['Entregas com ocorrência', 'Entregas com avaria, falta na carga ou tentativa sem sucesso.', d => d.had_incident],
 };
 
 const STAGES = [['first', 'Coleta até o hub de origem'], ['transfer', 'Transferência entre hubs'],
@@ -521,8 +524,8 @@ const STAGES = [['first', 'Coleta até o hub de origem'], ['transfer', 'Transfer
 function stageOf(stops, i) {
     const kind = stops[i].kind;
     if (kind === 'Entregue') return 'last';
-    if (kind === 'Saiu para entrega') return 'hub';
-    return stops[i - 1].kind === 'Coletado' ? 'first' : 'transfer';
+    if (kind === 'Saiu para o cliente') return 'hub';
+    return stops[i - 1].kind === 'Carregado' ? 'first' : 'transfer';
 }
 
 /* Tempo médio real e previsto por etapa do trajeto, nas entregas concluídas com rota planejada. */
@@ -542,8 +545,47 @@ function stageBreakdown(deliveries) {
 
 const picto = (filled, total = 10) => `<div class="picto" aria-hidden="true">${'<i class="ok"></i>'.repeat(filled)}${'<i class="no"></i>'.repeat(total - filled)}</div>`;
 
+const levelPill = lv => `<span class="pill lv-${lv || 'none'}">${LEVEL_TEXT[lv] || 'Sem dados'}</span>`;
+
 function explainHtml(key) {
     const {kpis: k, targets: T, deliveries} = state.data;
+    if (key === 'window') {
+        if (k.window === null) return '<p>Nenhuma entrega com janela de recebimento concluída neste filtro.</p>';
+        const on = Math.round(k.window / 10);
+        return `${picto(on)}<p>Cada PDV só recebe em um horário (o bar antes de abrir, o mercado de manhã cedo). De cada 10 entregas,
+            cerca de <b>${on}</b> chegaram dentro desse horário. Fora dela, o motorista encontra a porta fechada ou o recebimento ocupado.</p>
+            <p class="formula">${k.window_hit} na janela ÷ ${k.window_total} entregues com janela × 100 = <b>${fmtNum(k.window, '%')}</b></p>
+            <p class="muted">Hoje: <b>${k.window_closing}</b> ${k.window_closing === 1 ? 'pedido em rota' : 'pedidos em rota'} com a janela fechando ou fechada; <b>${k.late}</b> com prazo vencido.</p>`;
+    }
+    if (key === 'empties') {
+        if (k.empties === null) return '<p>Nenhum vasilhame retornável entregue neste filtro.</p>';
+        const list = state.data.empties_balance;
+        return `${picto(Math.round(k.empties / 10))}<p>De cada 10 cascos e barris entregues cheios, cerca de <b>${Math.round(k.empties / 10)}</b> voltaram vazios ao CD.
+            O que não volta é patrimônio da distribuidora parado no cliente e falta de vasilhame para envasar de novo (logística reversa, ciclo fechado).</p>
+            <p class="formula">${k.empties_in} recolhidos ÷ ${k.empties_out} entregues × 100 = <b>${fmtNum(k.empties, '%')}</b></p>
+            <h3>Saldo em comodato por cliente</h3>
+            ${list.length ? `<table><thead><tr><th>Cliente</th><th>Entregues</th><th>Recolhidos</th><th>Em aberto</th></tr></thead><tbody>
+            ${list.map(b => `<tr><td>${esc(b.client)}</td><td>${b.out}</td><td>${b.in}</td><td>${levelPill(b.level)} ${b.pending}</td></tr>`).join('')}
+            </tbody></table><p class="muted small">Acima de ${state.data.rules.empties_limit} em aberto, os próximos pedidos do cliente recebem o alerta “Recolher vasilhame”.</p>` : '<p class="muted">Nenhum cliente com vasilhame em aberto.</p>'}`;
+    }
+    if (key === 'otif') {
+        if (k.otif === null) return '<p>Ainda não há pedidos entregues neste filtro.</p>';
+        const on = Math.round(k.otif / 10);
+        const expiring = state.data.lots.filter(l => l.level !== 'good');
+        return `${picto(on)}<p>De cada 10 pedidos entregues, cerca de <b>${on}</b> chegaram <b>no prazo</b> e <b>completos</b>
+            (todas as caixas pedidas). Basta atrasar <i>ou</i> faltar uma caixa para o pedido sair do OTIF.</p>
+            <p class="formula">${k.otif_count} no prazo e completos ÷ ${k.completed} entregues × 100 = <b>${fmtNum(k.otif, '%')}</b></p>
+            <h3>De onde vem o OTIF</h3>
+            <table><thead><tr><th>Indicador</th><th>Conta</th><th>Valor</th><th>Meta</th></tr></thead><tbody>
+            <tr><td>No prazo (OTD)</td><td>${k.punctual} ÷ ${k.completed} entregues</td><td>${fmtNum(k.otd, '%')}</td><td>${levelPill(k.levels.otd)} ≥ ${T.otd.good}%</td></tr>
+            <tr><td>Fill rate (caixas atendidas)</td><td>${k.boxes_served} ÷ ${k.boxes_ordered} caixas</td><td>${fmtNum(k.fill_rate, '%')}</td><td>${levelPill(k.levels.fill_rate)} ≥ ${T.fill_rate.good}%</td></tr>
+            <tr><td>Aderência FEFO</td><td>${k.fefo_ok} ÷ ${k.items} itens do lote que vence primeiro</td><td>${fmtNum(k.fefo, '%')}</td><td>${levelPill(k.levels.fefo)} ≥ ${T.fefo.good}%</td></tr>
+            </tbody></table>
+            <h3>Lotes vencendo no CD (${expiring.length})</h3>
+            ${expiring.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Estoque</th></tr></thead><tbody>
+            ${expiring.map(l => `<tr><td>${esc(l.product)}</td><td>${esc(l.lot)}</td><td>${levelPill(l.level)} ${l.days_left} dias</td><td>${l.stock} cx</td></tr>`).join('')}
+            </tbody></table><p class="muted small">FEFO: priorizar estes lotes nas próximas cargas.</p>` : '<p class="muted">Nenhum lote vence nos próximos ' + state.data.expiry_rules.warn_days + ' dias.</p>'}`;
+    }
     if (key === 'otd') {
         if (k.otd === null) return '<p>Ainda não há entregas concluídas neste filtro.</p>';
         const on = Math.round(k.otd / 10);
@@ -579,7 +621,7 @@ function explainHtml(key) {
     }
     if (!k.incident_count) return '<p>Nenhuma entrega com ocorrência neste filtro.</p>';
     const per = Math.round(k.total / k.incident_count);
-    return `${picto(1, Math.min(per, 20))}<p>Cerca de <b>1 de cada ${per}</b> entregas teve algum problema (avaria, extravio ou tentativa sem sucesso).
+    return `${picto(1, Math.min(per, 20))}<p>Cerca de <b>1 de cada ${per}</b> entregas teve algum problema (avaria, falta na carga ou tentativa sem sucesso).
         A meta é no máximo ${T.incidents.good}%, ou seja, 1 de cada ${Math.round(100 / T.incidents.good)}.</p>
         <p class="formula">${k.incident_count} entregas com ocorrência ÷ ${k.total} entregas × 100 = <b>${fmtNum(k.incidents, '%')}</b></p>
         <p class="muted">Cada entrega conta uma vez, mesmo com vários problemas.</p>${incidentsHtml(state.data.incident_kinds)}`;
@@ -595,7 +637,7 @@ function drill(key) {
         <h3>${title} (${list.length})</h3><p class="muted">${text}</p><div class="scroll">${listHtml(list)}</div>`);
 }
 
-const STEP_LABEL = {'Coletado': 'coleta', 'Em trânsito': 'chegada', 'Saiu para entrega': 'saída para entrega', 'Entregue': 'entrega ao cliente'};
+const STEP_LABEL = {'Carregado': 'coleta', 'Em rota': 'chegada', 'Saiu para o cliente': 'saída para entrega', 'Entregue': 'entrega ao cliente'};
 
 function legHtml(stop) {
     if (stop.actual_hours === null) return '';
@@ -628,7 +670,7 @@ function placeText(r, next, d) {
     const here = r.current_location || d.origin;
     if (!next) return `Último registro ${prep(here)}.`;
     const planned = next.planned_hours !== null ? ` (trecho previsto: ${dur(next.planned_hours)})` : '';
-    if (next.location !== here && next.kind === 'Em trânsito') {
+    if (next.location !== here && next.kind === 'Em rota') {
         return `Saiu ${prep(here).replace(/^no /, 'do ').replace(/^em /, 'de ')} há ${dur(next.actual_hours)}, a caminho ${prep(next.location).replace(/^no /, 'do ').replace(/^em /, 'de ')}${planned}.`;
     }
     return `${prep(here)[0].toUpperCase()}${prep(here).slice(1)} há ${dur(next.actual_hours)}, aguardando ${STEP_LABEL[next.kind] || 'a próxima movimentação'}${planned}.`;
@@ -649,6 +691,7 @@ function factsHtml(d) {
     return `<div class="facts">
         <div><small>Onde está</small><p>${where}</p></div>
         <div><small>Prazo</small><p>${fmtDate(d.deadline)} · ${deadlineHtml(d)}</p></div>
+        ${d.window ? `<div><small>Janela de recebimento</small><p>${d.window[0]}h às ${d.window[1]}h${d.in_window === null ? '' : d.in_window ? ' · <span class="dl ok">entregue na janela</span>' : ' · <span class="dl late">entregue fora da janela</span>'}</p></div>` : ''}
         <div><small>Onde mais atrasou</small><p>${worst}</p></div>
         ${d.delivered ? '' : `<div><small>Previsão de chegada</small><p>${eta || 'Sem rota planejada para estimar.'}</p></div>`}</div>`;
 }
@@ -668,6 +711,17 @@ function diagnosisHtml(d) {
         <p class="dx-owner">Quem acionar: <b>${esc(dx.owner)}</b></p></section>`;
 }
 
+function itemsHtml(d) {
+    if (!d.items.length) return '';
+    const fill = d.fill_rate === null ? '' : ` · fill rate ${fmtNum(d.fill_rate, '%')}${d.complete ? '' : ' <span class="dl late">entrega parcial</span>'}`;
+    return `<h3>Itens do pedido <small class="muted">${d.delivered ? fill : 'lote e validade'}</small></h3>
+        <div class="scroll"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Pedido</th>${d.delivered ? '<th>Entregue</th>' : ''}</tr></thead><tbody>
+        ${d.items.map(i => `<tr><td>${esc(i.product)}</td><td>${esc(i.lot)}${i.fefo_ok ? '' : ' <span class="dl late" title="Havia lote com validade mais curta no CD">fora do FEFO</span>'}</td>
+            <td>${new Date(i.expiry + 'T12:00').toLocaleDateString('pt-BR')}</td><td>${i.qty_ordered} cx</td>
+            ${d.delivered ? `<td>${i.qty_delivered ?? i.qty_ordered} cx</td>` : ''}</tr>`).join('')}</tbody></table></div>
+        ${d.delivered && d.empties_out ? `<p class="muted small">Vasilhame: ${d.empties_out} entregues cheios, ${d.empties_in} recolhidos vazios${d.empties_in < d.empties_out ? ` · <span class="dl late">${d.empties_out - d.empties_in} ficaram no cliente</span>` : ''}.</p>` : ''}`;
+}
+
 function detail(id) {
     const d = state.data.deliveries.find(x => x.id === id);
     if (!d) return;
@@ -676,8 +730,8 @@ function detail(id) {
     const events = d.events.map(e => `<div class="event ${INCIDENTS.includes(e.kind) ? 'bad' : e.kind === 'Entregue' ? 'done' : ''}">
         <b>${esc(e.kind)}</b> · ${fmtDate(e.time)}<br>${esc(e.location)}<p class="muted">${esc(e.note)}</p></div>`).join('');
     const next = r.stops.find(s => s.status === 'current');
-    const kinds = ['Em trânsito', 'Saiu para entrega', 'Entregue', ...INCIDENTS, ...(d.open_incident ? ['Ocorrência tratada'] : [])];
-    const presets = ['Em trânsito', 'Saiu para entrega', 'Entregue', ...(d.open_incident ? ['Ocorrência tratada'] : [])];
+    const kinds = ['Em rota', 'Saiu para o cliente', 'Entregue', ...INCIDENTS, ...(d.open_incident ? ['Ocorrência tratada'] : [])];
+    const presets = ['Em rota', 'Saiu para o cliente', 'Entregue', ...(d.open_incident ? ['Ocorrência tratada'] : [])];
     const form = d.delivered ? '' : `<h3>Registrar próxima movimentação</h3>
         ${next && next.kind ? `<p class="muted small">Próximo passo previsto na rota: <b>${STEP_LABEL[next.kind]} em ${esc(next.location)}</b>. O formulário já vem preenchido com ele.</p>` : ''}
         <div class="presets" aria-label="Atalhos">${presets.map(p => `<button type="button" class="ghost" data-preset="${p}">${p}</button>`).join('')}</div>
@@ -685,11 +739,12 @@ function detail(id) {
         <label>Evento<select name="kind" id="evkind">${kinds.map(k => `<option ${next && k === next.kind ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
         <label>Data e hora<input name="time" type="datetime-local" value="${localInput()}" max="${localInput()}" required></label>
         <label>Local<input name="location" id="evloc" maxlength="300" required placeholder="Ex.: Hub Salvador/BA"></label>
+        <label>Vasilhames recolhidos <small class="muted">(ao registrar Entregue)</small><input name="empties" type="number" min="0" step="1" placeholder="Ex.: 12"></label>
         <label>Observação<textarea name="note" maxlength="1000" rows="2"></textarea></label></div>
         <button class="submit">Salvar evento</button></form>`;
     openModal(`<h2 id="modaltitle">${esc(d.code)} <small class="muted">${esc(d.client)} · ${esc(d.carrier)}</small></h2>
         <p class="route-line">${esc(d.origin)} → ${esc(d.destination)}</p>
-        ${factsHtml(d)}${todo}
+        ${factsHtml(d)}${todo}${itemsHtml(d)}
         <h3>Trajeto ${r.has_plan ? '<small class="muted">real × previsto em cada trecho</small>' : ''}</h3>${tripHtml(d)}
         <details class="history"><summary>Todos os registros (${d.events.length})</summary>${events}</details>${form}`);
     const form_ = $('eventform');
@@ -730,7 +785,7 @@ function newDelivery() {
         ${field('client', 'Cliente', 'maxlength="300"')}
         ${field('origin', 'Origem', `maxlength="300" value="${esc(origin)}"`)}
         ${field('destination', 'Destino', 'maxlength="300" list="destlist"')}
-        ${field('carrier', 'Transportadora', 'maxlength="300" list="carrierlist"')}
+        ${field('carrier', 'Frota', 'maxlength="300" list="carrierlist"')}
         <span></span>
         ${field('collected', 'Coleta', `type="datetime-local" value="${localInput()}" max="${localInput()}"`)}
         ${field('deadline', 'Prazo de entrega', `type="datetime-local" value="${localInput(72)}"`)}
@@ -807,12 +862,12 @@ async function copyText(text, done) {
         await navigator.clipboard.writeText(text);
         toast(done);
     } catch {
-        openModal(`<h2 id="modaltitle">Mensagem para a transportadora</h2><textarea readonly rows="8" style="width:100%">${esc(text)}</textarea>`);
+        openModal(`<h2 id="modaltitle">Mensagem para a frota</h2><textarea readonly rows="8" style="width:100%">${esc(text)}</textarea>`);
     }
 }
 
 function exportCsv() {
-    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Transportadora', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'Alertas'];
+    const header = ['Código', 'Cliente', 'Origem', 'Destino', 'Frota', 'Coleta', 'Prazo', 'Situação', 'Entrega', 'Alertas'];
     const rows = state.data.deliveries.map(d => [d.code, d.client, d.origin, d.destination, d.carrier, d.collected, d.deadline,
                                                   d.status, d.delivered, d.alerts.join(' | ')]);
     const quote = v => '"' + String(v ?? '').replace(/^[=+@-]/, "'$&").replaceAll('"', '""') + '"';
@@ -842,7 +897,7 @@ document.addEventListener('click', event => {
     else if (ds.carrier) { $('modal').open && $('modal').close(); go({view: 'deliveries', carrier: ds.carrier}); }
     else if (ds.chip) { state.chip = ds.chip; render(); }
     else if (ds.achip) { state.alertChip = ds.achip; render(); }
-    else if (ds.copy) copyText(deliveryMessage(state.data.deliveries.find(d => d.id === Number(ds.copy))), 'Mensagem copiada. Cole no e-mail ou WhatsApp da transportadora.');
+    else if (ds.copy) copyText(deliveryMessage(state.data.deliveries.find(d => d.id === Number(ds.copy))), 'Mensagem copiada. Cole no e-mail ou WhatsApp da frota.');
     else if (ds.copyCarrier) copyText(carrierMessage(ds.copyCarrier), `Cobrança para ${ds.copyCarrier} copiada.`);
 });
 
