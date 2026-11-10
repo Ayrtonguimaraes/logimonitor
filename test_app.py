@@ -14,6 +14,7 @@ class LogisticsTests(unittest.TestCase):
         app.DB=Path(self.temp.name)/'test.sqlite3'
         app.initialize()
         with app.session() as con:
+            con.execute('DELETE FROM items')
             con.execute('DELETE FROM events')
             con.execute('DELETE FROM deliveries')
     def tearDown(self):
@@ -226,6 +227,25 @@ class LogisticsTests(unittest.TestCase):
         ok=self.routed('OK',30,40)
         self.move(ok,'Entregue',1,'João Pessoa/PB')
         self.assertIsNone(next(d for d in app.snapshot()['deliveries'] if d['code']=='OK')['diagnosis'])
+    def test_otif_fill_rate_and_fefo(self):
+        did=self.custom("P1",30,10)
+        with app.session() as con:
+            con.execute("INSERT INTO lots VALUES(?,?,?,?)",("G600","OLD","2099-01-01",10))
+            con.execute("INSERT INTO lots VALUES(?,?,?,?)",("G600","NEW","2099-06-01",10))
+            con.execute("INSERT INTO items(delivery_id,sku,lot,expiry,qty_ordered,qty_delivered) VALUES(?,?,?,?,?,?)",(did,"G600","NEW","2099-06-01",10,8))
+        self.event(did,"Entregue",app.now()-timedelta(hours=1))
+        data=app.snapshot()
+        d=data["deliveries"][0]
+        self.assertTrue(d["on_time"]); self.assertFalse(d["complete"]); self.assertFalse(d["otif"])
+        k=data["kpis"]
+        self.assertEqual((k["otd"],k["otif"],k["fill_rate"],k["fefo"]),(100.0,0.0,80.0,0.0))
+        self.assertEqual(k["levels"]["otif"],"bad")
+    def test_demo_lots_flag_expiry(self):
+        app.reset_demo()
+        data=app.snapshot()
+        self.assertIn("bad",{l["level"] for l in data["lots"]})
+        k=data["kpis"]
+        self.assertLess(k["fill_rate"],100); self.assertLess(k["fefo"],100); self.assertLessEqual(k["otif"],k["otd"])
     def test_demo_data_is_mostly_healthy(self):
         app.reset_demo()
         data=app.snapshot()

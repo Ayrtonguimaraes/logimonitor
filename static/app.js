@@ -204,8 +204,8 @@ function assistDrill(index) {
 }
 
 const KPI_CARDS = (k, T) => [
-    {key: 'otd', title: 'Entregas no prazo (OTD)', value: fmtNum(k.otd, '%'), level: k.levels.otd, meta: `meta ≥ ${T.otd.good}%`,
-     plain: k.otd === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.otd / 10)} de cada 10 chegam no prazo`},
+    {key: 'otif', title: 'No prazo e completo (OTIF)', value: fmtNum(k.otif, '%'), level: k.levels.otif, meta: `meta ≥ ${T.otif.good}%`,
+     plain: k.otif === null ? 'nenhum pedido entregue ainda' : `≈ ${fmtNum(k.otif / 10)} de cada 10 pedidos chegam no prazo e sem faltar nada`},
     {key: 'avg', title: 'Tempo médio de entrega', value: fmtNum(k.average_hours, ' h'), level: k.levels.average_hours,
      meta: k.planned_hours === null ? 'sem entregas concluídas' : `prazo médio ${fmtNum(k.planned_hours, ' h')}`,
      plain: k.average_hours === null ? 'nenhuma entrega concluída ainda' : `≈ ${fmtNum(k.average_hours / 24)} dias da coleta à entrega`},
@@ -480,6 +480,7 @@ function renderConcepts({targets: T, rules, routes}) {
             <td class="num">${stops.reduce((sum, st) => sum + st[2], 0)} h</td></tr>`).join('')}</tbody></table>`;
     $('targets').innerHTML = `<table><thead><tr><th>Indicador</th><th>Verde</th><th>Amarelo</th><th>Vermelho</th></tr></thead><tbody>
         <tr><td>${T.otd.label}</td><td>≥ ${T.otd.good}%</td><td>${T.otd.warn}% a ${T.otd.good}% (exclusive)</td><td>&lt; ${T.otd.warn}%</td></tr>
+        ${['otif', 'fill_rate', 'fefo'].map(key => `<tr><td>${T[key].label}</td><td>≥ ${T[key].good}%</td><td>${T[key].warn}% a ${T[key].good}% (exclusive)</td><td>&lt; ${T[key].warn}%</td></tr>`).join('')}
         <tr><td>Tempo médio de entrega</td><td>≤ prazo prometido médio</td><td>até 25% acima do prazo</td><td>mais de 25% acima</td></tr>
         <tr><td>${T.late.label}</td><td>${T.late.good}</td><td>1 a ${T.late.warn}</td><td>&gt; ${T.late.warn}</td></tr>
         <tr><td>${T.incidents.label}</td><td>≤ ${T.incidents.good}%</td><td>${T.incidents.good}% a ${T.incidents.warn}% (exclusive)</td><td>&gt; ${T.incidents.warn}%</td></tr></tbody></table>`;
@@ -504,7 +505,7 @@ function listHtml(list) {
 }
 
 const DRILLS = {
-    otd: ['Concluídas fora do prazo', 'São estas entregas que puxam o OTD para baixo.', d => d.delivered && !d.on_time],
+    otif: ['Pedidos fora do OTIF', 'Entregues com atraso ou com falta de caixas: são eles que puxam o OTIF para baixo.', d => d.delivered && !d.otif],
     avg: ['Entregas concluídas', 'Entregas usadas no cálculo do tempo médio.', d => d.delivered],
     late: ['Entregas em atraso', 'Da mais crítica para a menos crítica.', d => hasAlert(d, 'late')],
     incidents: ['Entregas com ocorrência', 'Entregas com avaria, falta na carga ou tentativa sem sucesso.', d => d.had_incident],
@@ -537,8 +538,28 @@ function stageBreakdown(deliveries) {
 
 const picto = (filled, total = 10) => `<div class="picto" aria-hidden="true">${'<i class="ok"></i>'.repeat(filled)}${'<i class="no"></i>'.repeat(total - filled)}</div>`;
 
+const levelPill = lv => `<span class="pill lv-${lv || 'none'}">${LEVEL_TEXT[lv] || 'Sem dados'}</span>`;
+
 function explainHtml(key) {
     const {kpis: k, targets: T, deliveries} = state.data;
+    if (key === 'otif') {
+        if (k.otif === null) return '<p>Ainda não há pedidos entregues neste filtro.</p>';
+        const on = Math.round(k.otif / 10);
+        const expiring = state.data.lots.filter(l => l.level !== 'good');
+        return `${picto(on)}<p>De cada 10 pedidos entregues, cerca de <b>${on}</b> chegaram <b>no prazo</b> e <b>completos</b>
+            (todas as caixas pedidas). Basta atrasar <i>ou</i> faltar uma caixa para o pedido sair do OTIF.</p>
+            <p class="formula">${k.otif_count} no prazo e completos ÷ ${k.completed} entregues × 100 = <b>${fmtNum(k.otif, '%')}</b></p>
+            <h3>De onde vem o OTIF</h3>
+            <table><thead><tr><th>Indicador</th><th>Conta</th><th>Valor</th><th>Meta</th></tr></thead><tbody>
+            <tr><td>No prazo (OTD)</td><td>${k.punctual} ÷ ${k.completed} entregues</td><td>${fmtNum(k.otd, '%')}</td><td>${levelPill(k.levels.otd)} ≥ ${T.otd.good}%</td></tr>
+            <tr><td>Fill rate (caixas atendidas)</td><td>${k.boxes_served} ÷ ${k.boxes_ordered} caixas</td><td>${fmtNum(k.fill_rate, '%')}</td><td>${levelPill(k.levels.fill_rate)} ≥ ${T.fill_rate.good}%</td></tr>
+            <tr><td>Aderência FEFO</td><td>${k.fefo_ok} ÷ ${k.items} itens do lote que vence primeiro</td><td>${fmtNum(k.fefo, '%')}</td><td>${levelPill(k.levels.fefo)} ≥ ${T.fefo.good}%</td></tr>
+            </tbody></table>
+            <h3>Lotes vencendo no CD (${expiring.length})</h3>
+            ${expiring.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Estoque</th></tr></thead><tbody>
+            ${expiring.map(l => `<tr><td>${esc(l.product)}</td><td>${esc(l.lot)}</td><td>${levelPill(l.level)} ${l.days_left} dias</td><td>${l.stock} cx</td></tr>`).join('')}
+            </tbody></table><p class="muted small">FEFO: priorizar estes lotes nas próximas cargas.</p>` : '<p class="muted">Nenhum lote vence nos próximos ' + state.data.expiry_rules.warn_days + ' dias.</p>'}`;
+    }
     if (key === 'otd') {
         if (k.otd === null) return '<p>Ainda não há entregas concluídas neste filtro.</p>';
         const on = Math.round(k.otd / 10);
@@ -663,6 +684,16 @@ function diagnosisHtml(d) {
         <p class="dx-owner">Quem acionar: <b>${esc(dx.owner)}</b></p></section>`;
 }
 
+function itemsHtml(d) {
+    if (!d.items.length) return '';
+    const fill = d.fill_rate === null ? '' : ` · fill rate ${fmtNum(d.fill_rate, '%')}${d.complete ? '' : ' <span class="dl late">entrega parcial</span>'}`;
+    return `<h3>Itens do pedido <small class="muted">${d.delivered ? fill : 'lote e validade'}</small></h3>
+        <div class="scroll"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Pedido</th>${d.delivered ? '<th>Entregue</th>' : ''}</tr></thead><tbody>
+        ${d.items.map(i => `<tr><td>${esc(i.product)}</td><td>${esc(i.lot)}${i.fefo_ok ? '' : ' <span class="dl late" title="Havia lote com validade mais curta no CD">fora do FEFO</span>'}</td>
+            <td>${new Date(i.expiry + 'T12:00').toLocaleDateString('pt-BR')}</td><td>${i.qty_ordered} cx</td>
+            ${d.delivered ? `<td>${i.qty_delivered ?? i.qty_ordered} cx</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+}
+
 function detail(id) {
     const d = state.data.deliveries.find(x => x.id === id);
     if (!d) return;
@@ -684,7 +715,7 @@ function detail(id) {
         <button class="submit">Salvar evento</button></form>`;
     openModal(`<h2 id="modaltitle">${esc(d.code)} <small class="muted">${esc(d.client)} · ${esc(d.carrier)}</small></h2>
         <p class="route-line">${esc(d.origin)} → ${esc(d.destination)}</p>
-        ${factsHtml(d)}${todo}
+        ${factsHtml(d)}${todo}${itemsHtml(d)}
         <h3>Trajeto ${r.has_plan ? '<small class="muted">real × previsto em cada trecho</small>' : ''}</h3>${tripHtml(d)}
         <details class="history"><summary>Todos os registros (${d.events.length})</summary>${events}</details>${form}`);
     const form_ = $('eventform');

@@ -25,7 +25,10 @@ STALE_HOURS = 24            # sem movimentação há mais de X horas
 RISK_HOURS = 12             # prazo vence em até X horas e a entrega ainda não saiu para entrega
 CRITICAL_OVERDUE_HOURS = 24  # atraso acima de X horas é crítico
 TARGETS = {
+    'otif': {'label': 'No prazo e completo (OTIF)', 'good': 90, 'warn': 80, 'higher_is_better': True, 'unit': '%'},
     'otd': {'label': 'Entregas no prazo (OTD)', 'good': 95, 'warn': 85, 'higher_is_better': True, 'unit': '%'},
+    'fill_rate': {'label': 'Fill rate (caixas atendidas)', 'good': 98, 'warn': 95, 'higher_is_better': True, 'unit': '%'},
+    'fefo': {'label': 'Aderência FEFO', 'good': 98, 'warn': 90, 'higher_is_better': True, 'unit': '%'},
     'incidents': {'label': 'Taxa de ocorrências', 'good': 5, 'warn': 10, 'higher_is_better': False, 'unit': '%'},
     'late': {'label': 'Entregas em atraso', 'good': 0, 'warn': 3, 'higher_is_better': False, 'unit': ''},
 }
@@ -56,6 +59,13 @@ DEMO_SIZE = 60
 # Pontos de venda (PDVs) fictícios atendidos pela distribuidora.
 CLIENTS = ['Bar do Zé', 'Mercadinho Boa Vista', 'Conveniência Posto', 'Restaurante Maré', 'Empório Central',
            'Quiosque Beira-Mar', 'Adega São João', 'Supermercado Bom Preço Local']
+# Produtos (SKUs) e lotes fictícios do CD. Validade em dias a partir de hoje; FEFO = primeiro que vence, primeiro que sai.
+SKUS = {'PIL350': 'Pilsen lata 350 ml (cx 12)', 'LN355': 'Long neck 355 ml (cx 24)',
+        'G600': 'Garrafa 600 ml retornável (cx 24)', 'BAR30': 'Barril chope 30 L'}
+SEED_LOTS = {'PIL350': [('L2611', 20, 340), ('L2702', 75, 900)], 'LN355': [('L2614', 45, 420), ('L2705', 110, 800)],
+             'G600': [('L2598', 5, 120), ('L2640', 60, 650)], 'BAR30': [('B0412', 12, 40), ('B0420', 25, 60)]}
+EXPIRY_WARN_DAYS = 30      # lote vencendo em até X dias gera alerta
+EXPIRY_CRITICAL_DAYS = 7
 # Casos-problema da demonstração (as demais entregas seguem a rota dentro do previsto):
 # destino, horas desde a coleta, parada onde a entrega ficou, atraso extra em um hub e ocorrência registrada.
 DEMO_CASES = {
@@ -120,10 +130,19 @@ def initialize():
         collected TEXT NOT NULL, deadline TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY,
         delivery_id INTEGER NOT NULL REFERENCES deliveries(id), time TEXT NOT NULL,
-        kind TEXT NOT NULL, location TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');''')
+        kind TEXT NOT NULL, location TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS lots (sku TEXT NOT NULL, lot TEXT NOT NULL, expiry TEXT NOT NULL,
+        stock INTEGER NOT NULL, PRIMARY KEY (sku, lot));
+        CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY,
+        delivery_id INTEGER NOT NULL REFERENCES deliveries(id), sku TEXT NOT NULL, lot TEXT NOT NULL,
+        expiry TEXT NOT NULL, qty_ordered INTEGER NOT NULL, qty_delivered INTEGER);''')
         if con.execute('SELECT count(*) FROM deliveries').fetchone()[0]:
             return
         base = now()
+        for sku, lots in SEED_LOTS.items():
+            for lot, days, stock in lots:
+                con.execute('INSERT INTO lots VALUES(?,?,?,?)', (sku, lot, (base + timedelta(days=days)).date().isoformat(), stock))
+        skus = list(SKUS)
         destinations = ['João Pessoa/PB', 'Natal/RN', 'Fortaleza/CE', 'Maceió/AL']
         carriers = ['Frota Própria', 'Parceira Litoral', 'Parceira Agreste']
         for i in range(1, DEMO_SIZE + 1):
@@ -136,6 +155,14 @@ def initialize():
                 (f'PED{i:04}', f'{CLIENTS[i % len(CLIENTS)]} {i:02}', 'Recife/PE', destination, carriers[i % 3],
                  stamp(collected), stamp(deadline)))
             did = cur.lastrowid
+            for n in range(2 + i % 2):  # 2 ou 3 itens por pedido
+                sku = skus[(i + n) % len(skus)]
+                lots = sorted(SEED_LOTS[sku], key=lambda l: l[1])
+                lot, days, _ = lots[-1] if i % 13 == 0 and n == 0 else lots[0]  # alguns pedidos furam o FEFO
+                qty = 2 if sku == 'BAR30' else 5 + (i * 7 + n * 3) % 20
+                short = 2 if i % 9 == 0 and n == 0 and qty > 2 else 0  # entregas parciais (falta no caminhão)
+                con.execute('INSERT INTO items(delivery_id,sku,lot,expiry,qty_ordered,qty_delivered) VALUES(?,?,?,?,?,?)',
+                            (did, sku, lot, (base + timedelta(days=days)).date().isoformat(), qty, qty - short))
             route = ROUTES[destination]
             add_event(con, did, stamp(collected), 'Carregado', route[0][0], SEED_NOTES['Carregado'])
             moment = collected
@@ -157,6 +184,8 @@ def initialize():
 def reset_demo():
     """Apaga todos os registros e recria os dados fictícios de demonstração."""
     with session() as con:
+        con.execute('DELETE FROM items')
+        con.execute('DELETE FROM lots')
         con.execute('DELETE FROM events')
         con.execute('DELETE FROM deliveries')
     initialize()
@@ -395,7 +424,8 @@ def analyze(row, history, current):
                had_incident=any(e['kind'] in INCIDENTS for e in history),
                open_incident=open_incident, open_loss=open_loss,
                alerts=[], alert_details=[], on_time=None, lead_hours=None,
-               delay_hours=0, overdue_hours=0, hours_to_deadline=None, priority=0)
+               delay_hours=0, overdue_hours=0, hours_to_deadline=None, priority=0,
+               fill_rate=None, complete=None, otif=None)
     row['route'] = trajectory(row, history, current)
     if delivered:
         delivered_at = datetime.fromisoformat(delivered)
@@ -403,6 +433,11 @@ def analyze(row, history, current):
         row['on_time'] = delivered_at <= deadline
         if not row['on_time']:
             row['delay_hours'] = round(hours_between(deadline, delivered_at), 1)
+        ordered = sum(i['qty_ordered'] for i in row['items'])
+        served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for i in row['items'])
+        row['fill_rate'] = round(100 * served / ordered, 1) if ordered else None
+        row['complete'] = served >= ordered
+        row['otif'] = row['on_time'] and row['complete']
         row['diagnosis'] = diagnose(row, current)
         return row
 
@@ -437,12 +472,20 @@ def compute_kpis(deliveries):
     punctual = sum(1 for d in completed if d['on_time'])
     delays = [d['delay_hours'] for d in completed if not d['on_time']]
     incidents = sum(1 for d in deliveries if d['had_incident'])
+    otif = sum(1 for d in completed if d['otif'])
+    ordered = sum(i['qty_ordered'] for d in completed for i in d['items'])
+    served = sum(i['qty_ordered'] if i['qty_delivered'] is None else i['qty_delivered'] for d in completed for i in d['items'])
+    items = [i for d in deliveries for i in d['items']]
+    fefo_ok = sum(1 for i in items if i['fefo_ok'])
 
     def count(code):
         return sum(1 for d in deliveries if any(a['code'] == code for a in d['alert_details']))
 
     result = dict(
-        total=total, completed=n, in_progress=total - n, punctual=punctual,
+        total=total, completed=n, in_progress=total - n, punctual=punctual, otif_count=otif,
+        otif=round(100 * otif / n, 1) if n else None,
+        boxes_ordered=ordered, boxes_served=served, fill_rate=round(100 * served / ordered, 1) if ordered else None,
+        items=len(items), fefo_ok=fefo_ok, fefo=round(100 * fefo_ok / len(items), 1) if items else None,
         otd=round(100 * punctual / n, 1) if n else None,
         average_hours=round(sum(d['lead_hours'] for d in completed) / n, 1) if n else None,
         planned_hours=round(sum(d['planned_hours'] for d in completed) / n, 1) if n else None,
@@ -453,7 +496,10 @@ def compute_kpis(deliveries):
         attention=sum(1 for d in deliveries if d['alerts']))
     planned = result['planned_hours']
     result['levels'] = dict(
+        otif=target_level('otif', result['otif']),
         otd=target_level('otd', result['otd']),
+        fill_rate=target_level('fill_rate', result['fill_rate']),
+        fefo=target_level('fefo', result['fefo']),
         average_hours=level(result['average_hours'], planned, planned * 1.25, False) if n else None,
         late=target_level('late', result['late']) if total else None,
         incidents=target_level('incidents', result['incidents']))
@@ -476,7 +522,7 @@ def scorecards(deliveries):
 def health(kpis):
     if not kpis['total']:
         return {'level': None, 'label': 'Sem dados', 'message': 'Nenhuma entrega no filtro selecionado.'}
-    names = {'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
+    names = {'otif': 'OTIF', 'fill_rate': 'fill rate', 'fefo': 'FEFO', 'otd': 'OTD', 'average_hours': 'tempo médio', 'late': 'entregas em atraso', 'incidents': 'ocorrências'}
     bad = [names[k] for k, v in kpis['levels'].items() if v == 'bad']
     warn = [names[k] for k, v in kpis['levels'].items() if v == 'warn']
     if bad:
@@ -515,7 +561,20 @@ def snapshot(carrier='', start='', end=''):
         events = {}
         for event in con.execute('SELECT * FROM events ORDER BY time,id'):
             events.setdefault(event['delivery_id'], []).append(dict(event))
+        lots = [dict(r) for r in con.execute('SELECT * FROM lots ORDER BY sku, expiry')]
+        items = {}
+        for item in con.execute('SELECT * FROM items ORDER BY id'):
+            items.setdefault(item['delivery_id'], []).append(dict(item))
     current = now()
+    oldest = {}
+    for lot in lots:  # lote que vence primeiro de cada SKU
+        oldest.setdefault(lot['sku'], lot['expiry'])
+        days = (datetime.fromisoformat(lot['expiry']) - current).days + 1
+        lot.update(product=SKUS.get(lot['sku'], lot['sku']), days_left=days,
+                   level='bad' if days <= EXPIRY_CRITICAL_DAYS else 'warn' if days <= EXPIRY_WARN_DAYS else 'good')
+    for group in items.values():
+        for item in group:
+            item.update(product=SKUS.get(item['sku'], item['sku']), fefo_ok=item['expiry'] <= oldest.get(item['sku'], item['expiry']))
     deliveries = []
     for row in rows:
         if carrier and row['carrier'] != carrier:
@@ -524,6 +583,7 @@ def snapshot(carrier='', start='', end=''):
             continue
         if end and row['collected'][:10] > end:
             continue
+        row['items'] = items.get(row['id'], [])
         deliveries.append(analyze(row, events.get(row['id'], []), current))
     kpis = compute_kpis(deliveries)
     cards = scorecards(deliveries)
@@ -533,7 +593,8 @@ def snapshot(carrier='', start='', end=''):
              'tolerance_hours': TOLERANCE_HOURS}
     spots = bottlenecks(deliveries)
     return {'deliveries': deliveries, 'kpis': kpis, 'health': status, 'carriers': cards, 'trend': days,
-            'bottlenecks': spots, 'routes': ROUTES,
+            'bottlenecks': spots, 'routes': ROUTES, 'lots': lots,
+            'expiry_rules': {'warn_days': EXPIRY_WARN_DAYS, 'critical_days': EXPIRY_CRITICAL_DAYS},
             'assistant': assistant.analyze(deliveries, kpis, status, cards, days, TARGETS, rules, INCIDENTS, spots),
             'incident_kinds': incident_kinds(deliveries), 'targets': TARGETS, 'rules': rules,
             'updated': stamp(current)}
