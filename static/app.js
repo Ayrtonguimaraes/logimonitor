@@ -10,6 +10,11 @@ const dur = h => h < 1 ? `${Math.max(1, Math.round(h * 60))} min`
     : `${(h / 24).toLocaleString('pt-BR', {maximumFractionDigits: 1})} dias`;
 const localInput = (offsetHours = 0) => {
     const d = new Date(Date.now() + offsetHours * 3600e3);
+    const timeZone = state.data?.timezone;
+    if (timeZone) {
+        return new Intl.DateTimeFormat('sv-SE', {timeZone, dateStyle: 'short', timeStyle: 'short'})
+            .format(d).replace(' ', 'T');
+    }
     return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 };
 
