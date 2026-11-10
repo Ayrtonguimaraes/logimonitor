@@ -159,7 +159,11 @@ def initialize():
         expiry TEXT NOT NULL, qty_ordered INTEGER NOT NULL, qty_delivered INTEGER);
         CREATE TABLE IF NOT EXISTS returns (delivery_id INTEGER PRIMARY KEY REFERENCES deliveries(id),
         collected INTEGER NOT NULL);''')
-        if con.execute('SELECT count(*) FROM deliveries').fetchone()[0]:
+        legacy = con.execute("SELECT 1 FROM events WHERE kind IN ('Coletado','Em trânsito','Saiu para entrega') LIMIT 1").fetchone()
+        if legacy:  # banco da versão anterior (antes do tema distribuidora): recria a demonstração
+            for table in ('returns', 'items', 'lots', 'events', 'deliveries'):
+                con.execute(f'DELETE FROM {table}')
+        elif con.execute('SELECT count(*) FROM deliveries').fetchone()[0]:
             return
         base = now()
         for sku, lots in SEED_LOTS.items():

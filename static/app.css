@@ -378,3 +378,36 @@ ul.guide{margin:6px 0 0;padding-left:20px;line-height:1.7}
   .legend{gap:10px;font-size:11px}.live{margin-left:6px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.progress{display:none}}
+
+/* ------------------------------------------------ identidade visual: distribuidora de bebidas
+   Azul-marinho como base, âmbar (cor da cerveja) como destaque e padrão geométrico de círculos,
+   meias-luas e losangos. As cores do semáforo continuam separadas para não confundir status. */
+header.top{background:var(--brand-navy);border-bottom:4px solid var(--brand-amber);backdrop-filter:none;-webkit-backdrop-filter:none}
+h1.brand{color:#fff}
+.logo{background:var(--brand-amber);color:var(--brand-navy);border-radius:50%;font-weight:700}
+.top-right{color:rgba(255,255,255,.75)}
+.segmented{background:rgba(255,255,255,.12)}
+.segmented button{color:rgba(255,255,255,.88)}
+.segmented button:hover{background:rgba(255,255,255,.12)}
+.segmented button[aria-selected=true]{background:var(--brand-amber);color:var(--brand-navy);font-weight:600;box-shadow:none}
+.pagehead{position:relative;padding:26px 28px;margin:24px 0 22px;border-radius:var(--radius);color:#fff;overflow:hidden;
+  background:
+    radial-gradient(circle at 92% 30%,var(--brand-amber) 0 34px,transparent 35px),
+    radial-gradient(circle at 84% 115%,#fff 0 46px,transparent 47px),
+    radial-gradient(circle at 100% 100%,var(--brand-amber) 0 60px,transparent 61px),
+    linear-gradient(45deg,transparent 46%,rgba(255,255,255,.07) 46% 54%,transparent 54%) 0 0/36px 36px,
+    linear-gradient(135deg,var(--brand-navy),var(--accent))}
+.pagehead h2{color:#fff}
+.pagehead .lead{color:var(--brand-amber)}
+.pagehead .filters,.pagehead label{color:rgba(255,255,255,.85);position:relative;z-index:1}
+.pagehead .filterinfo{color:rgba(255,255,255,.7)}
+.pagehead button.ghost{background:var(--brand-amber);color:var(--brand-navy);font-weight:600}
+.pagehead button.link{color:var(--brand-amber)}
+.card{border-top:5px solid var(--brand-amber)}
+.card .title{color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:11.5px}
+.card strong:not([class*=lv-text-bad]):not([class*=lv-text-warn]){color:var(--brand-navy)}
+.panel-head h3,.panel h3{color:var(--brand-navy)}
+.assistant{border-left:5px solid var(--brand-amber)}
+button.ghost{background:var(--brand-amber-bg);color:var(--brand-navy)}
+button.ghost:hover{background:#f8e3ae}
+footer{border-top:3px solid var(--brand-amber)}
