@@ -4,7 +4,7 @@ Projeto acadêmico de monitoramento de KPIs, rastreabilidade e alertas logístic
 
 ## Executar
 
-Requer Python 3.9 ou superior. Sem pacotes adicionais.
+Requer Python 3.9 ou superior. A primeira instalação baixa as dependências no ambiente virtual.
 
 Os inicializadores criam automaticamente um ambiente virtual `.venv` exclusivo do projeto e executam o servidor com o Python desse ambiente.
 
@@ -35,6 +35,21 @@ Não é necessário ativar o ambiente no PowerShell: os comandos acima usam dire
 Cada integrante deve clonar o repositório ou baixar o ZIP em **Code → Download ZIP**, extrair e executar o inicializador do seu sistema. Cada computador cria sua própria `.venv` e seu próprio banco. O ambiente e o banco não são enviados ao GitHub. O GitHub compartilha o código; ele não hospeda este servidor Python nem sincroniza os dados entre integrantes.
 
 O banco `dados.sqlite3` é criado automaticamente com 60 entregas fictícias, com datas relativas ao primeiro uso. A maioria segue a rota dentro do previsto; seis casos-problema (`DEMO_CASES` em `app.py`) cobrem os cenários típicos: duas entregas retidas no Hub João Pessoa (uma com avaria), uma transferência lenta entre Campina Grande e Mossoró com previsão de atraso, uma tentativa de entrega sem sucesso em Natal e duas entregas concluídas com atraso. Os dados permanecem salvos após reiniciar. Para recomeçar, use **Restaurar dados de demonstração** no rodapé (apaga os registros atuais) ou remova o arquivo com o servidor encerrado.
+
+## Publicar no Vercel
+
+1. Envie os arquivos desta versão para a branch que será implantada no GitHub.
+2. No [Vercel](https://vercel.com/new), importe `Ayrtonguimaraes/logimonitor`. Use a raiz do repositório e o preset **Flask**. Mantenha os comandos de build e o diretório de saída no padrão.
+3. Conecte um banco PostgreSQL exclusivo da demonstração pelo **Storage / Marketplace**, por exemplo Neon. Se o Vercel já criou `DATABASE_URL` ou `POSTGRES_URL` no projeto, o aplicativo usa essa variável. Caso contrário, adicione `DATABASE_URL` com a URL de conexão do banco, preferencialmente a URL com pool e TLS fornecida pelo provedor.
+4. Em **Settings → Environment Variables**, adicione `LOGIMONITOR_PASSWORD` com uma senha forte de sua escolha. Configure as variáveis no ambiente **Production** ou **Preview**, de acordo com o deploy. Para testar em Preview, use um banco ou uma branch de banco separados da produção.
+5. Faça o deploy. Se o projeto já tiver sido implantado antes de você configurar as variáveis, faça **Redeploy**.
+6. Abra a URL do Vercel. Use o usuário `logimonitor` e a senha configurada. O painel cria as tabelas e 60 entregas fictícias no primeiro acesso com um banco vazio.
+
+A aplicação hospedada usa o horário de Recife. A URL e a senha podem ser compartilhadas com o grupo. Todos os usuários autenticados trabalham sobre a mesma base, inclusive ao restaurar os dados de demonstração. O banco SQLite que já existe no computador é independente da base hospedada.
+
+Ao atualizar uma base existente, o aplicativo cria as tabelas de lotes, itens e vasilhames e preserva as entregas e seu histórico. Pedidos antigos continuam disponíveis, com os nomes dos eventos adaptados à tela da distribuidora. Os novos dados de demonstração são gerados em uma base vazia ou ao selecionar explicitamente **Restaurar dados de demonstração**, que apaga os registros da base selecionada.
+
+Para validar, cadastre uma entrega, adicione um evento e recarregue a página. Confirme que o registro aparece também em outra sessão autenticada.
 
 ## Demonstração
 
@@ -91,7 +106,7 @@ As requisições `POST` exigem `Content-Type: application/json` e `Origin`/`Host
 
 ## Estrutura e processamento
 
-- `app.py`: servidor HTTP local, validação, banco SQLite, regras logísticas, KPIs, alertas e recomendações (única fonte dos cálculos).
+- `app.py`: servidor HTTP local e entrada Flask para o Vercel, validação, persistência, regras logísticas, KPIs, alertas e recomendações (única fonte dos cálculos).
 - `static/index.html`, `static/app.css`, `static/app.js`: interface (apenas exibe os resultados calculados pelo servidor), histórico e CSV.
 - `assistant.py`: assistente de insights (regras analíticas que geram o resumo e as recomendações do painel).
 - `test_app.py`: testes das regras de negócio, do assistente de insights e da API HTTP com banco temporário.
@@ -103,7 +118,7 @@ Saída: painel, histórico, lista de alertas e arquivo CSV.
 
 OTD = concluídas no prazo / concluídas × 100. Tempo médio = média das horas corridas entre coleta e conclusão. Atrasadas = pendentes com prazo vencido. Taxa de ocorrências = entregas com ao menos uma ocorrência / total × 100. Sem denominador, exibe “—”.
 
-Período filtra pela coleta. Eventos usam horário local, sem conversão de fuso. Os alertas são recalculados a cada atualização (automática a cada 60 s ou manual); não há notificações em segundo plano. Ocorrências permanecem sinalizadas até serem tratadas ou até a entrega ser concluída. Dados fictícios, sem GPS, contas ou integrações. Uso local por uma pessoa; não exponha o servidor à internet.
+Período filtra pela coleta. Eventos usam o horário do computador no modo local e o horário de Recife no Vercel. Os alertas são recalculados a cada atualização (automática a cada 60 s ou manual); não há notificações em segundo plano. Ocorrências permanecem sinalizadas até serem tratadas ou até a entrega ser concluída. Os dados de demonstração são fictícios e os eventos são lançados manualmente. O modo local escuta apenas no próprio computador.
 
 ## Testar
 

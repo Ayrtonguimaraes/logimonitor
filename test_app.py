@@ -292,6 +292,21 @@ class LogisticsTests(unittest.TestCase):
         self.assertEqual(len(data['trend']),1)
         self.assertEqual(data['trend'][0]['completed'],1)
         self.assertEqual(data['incident_kinds'],[{'kind':'Avaria','count':1}])
+    def test_initialize_preserves_legacy_delivery_and_event(self):
+        delivery_id = self.delivery('LOG-ANTIGO')
+        with app.session(write=True) as con:
+            con.execute("UPDATE events SET kind='Coletado' WHERE delivery_id=?", (delivery_id,))
+
+        app.initialize()
+        app.initialize()
+
+        delivery, = app.snapshot()['deliveries']
+        self.assertEqual(delivery['id'], delivery_id)
+        self.assertEqual(delivery['code'], 'LOG-ANTIGO')
+        self.assertEqual(delivery['status'], 'Carregado')
+        with app.session() as con:
+            self.assertEqual(con.execute('SELECT kind FROM events').fetchone()['kind'], 'Coletado')
+
     def test_reset_demo_restores_forty_deliveries(self):
         self.delivery()
         app.reset_demo()
