@@ -268,8 +268,50 @@ def lead_time(ctx):
         'Revisar o prazo prometido aos clientes ou exigir lead time menor das frotas.')
 
 
+def expiring_lots(ctx):
+    """Lote no CD perto do vencimento: aplicar FEFO na próxima carga."""
+    lots = sorted((l for l in ctx['lots'] if l['level'] != 'good'), key=lambda l: l['days_left'])
+    if not lots:
+        return None
+    lot = lots[0]
+    boxes = sum(l['stock'] for l in lots)
+    return insight('critico' if lot['level'] == 'bad' else 'atencao',
+                   f'Lote {lot["lot"]} vence em {lot["days_left"]} dias com {lot["stock"]} caixas no CD',
+                   f'{len(lots)} {plural(len(lots), "lote vence", "lotes vencem")} nos próximos {ctx["rules"]["expiry_warn_days"]} dias '
+                   f'({boxes} caixas). O mais urgente é {lot["product"]}. Cerveja vencida vira perda total.',
+                   'Priorizar esses lotes na separação das próximas cargas (FEFO) e, se sobrar, oferecer em promoção aos PDVs de maior giro.')
+
+
+def empties_holders(ctx):
+    """PDVs que concentram vasilhame não devolvido (logística reversa)."""
+    over = [b for b in ctx['empties_balance'] if b['level'] == 'bad']
+    if not over:
+        return None
+    total = sum(b['pending'] for b in ctx['empties_balance'])
+    top = over[0]
+    group = [d for d in ctx['deliveries'] if d['client'] in {b['client'] for b in over} and not d['delivered']]
+    return insight('atencao', f'{len(over)} {plural(len(over), "cliente segura", "clientes seguram")} vasilhame acima do limite',
+                   f'{top["client"]} tem {top["pending"]} vasilhames em aberto, de {total} fora do CD. Casco parado no cliente '
+                   'falta para o envase e é patrimônio da distribuidora.',
+                   'Recolher o vasilhame na próxima entrega desses clientes e, se persistir, cobrar o casco no próximo pedido.',
+                   group)
+
+
+def partial_deliveries(ctx):
+    """Entregas parciais: o OTIF cai mesmo com o caminhão chegando no horário."""
+    partial = [d for d in ctx['deliveries'] if d['delivered'] and d['complete'] is False]
+    if len(partial) < 2:
+        return None
+    on_time = sum(1 for d in partial if d['on_time'])
+    return insight('atencao', f'{len(partial)} pedidos entregues com falta de caixas',
+                   f'{on_time} deles chegaram no prazo, mas saíram do OTIF por estarem incompletos. O fill rate está em '
+                   f'{pt(ctx["kpis"]["fill_rate"] or 0)}%: o problema está na separação e carregamento no CD, não na rota.',
+                   'Conferir a separação antes do carregamento (checklist por pedido) e verificar ruptura de estoque dos itens faltantes.',
+                   partial)
+
+
 RULES = [lost_cargo, route_bottleneck, late_by_destination, late_by_carrier, incidents_blocking, predicted_late, at_risk, stale_tracking,
-         carrier_switch, trend_shift, lead_time]
+         carrier_switch, trend_shift, lead_time, expiring_lots, empties_holders, partial_deliveries]
 
 
 def summary(ctx, insights):
@@ -288,9 +330,10 @@ def summary(ctx, insights):
     return ' '.join(parts)
 
 
-def analyze(deliveries, kpis, health, carriers, trend, targets, rules, incident_types, bottlenecks=()):
+def analyze(deliveries, kpis, health, carriers, trend, targets, rules, incident_types, bottlenecks=(), lots=(), empties_balance=()):
     ctx = dict(deliveries=deliveries, kpis=kpis, health=health, carriers=carriers, trend=trend,
-               targets=targets, rules=rules, incident_types=incident_types, bottlenecks=list(bottlenecks))
+               targets=targets, rules=rules, incident_types=incident_types, bottlenecks=list(bottlenecks),
+               lots=list(lots), empties_balance=list(empties_balance))
     if not deliveries:
         return {'resumo': summary(ctx, []), 'insights': []}
     found = [result for rule in RULES if (result := rule(ctx))]

@@ -671,12 +671,13 @@ def snapshot(carrier='', start='', end=''):
     status = health(kpis)
     days = trend(deliveries)
     rules = {'stale_hours': STALE_HOURS, 'risk_hours': RISK_HOURS, 'critical_overdue_hours': CRITICAL_OVERDUE_HOURS,
-             'tolerance_hours': TOLERANCE_HOURS, 'empties_limit': EMPTIES_LIMIT}
+             'tolerance_hours': TOLERANCE_HOURS, 'empties_limit': EMPTIES_LIMIT,
+             'expiry_warn_days': EXPIRY_WARN_DAYS}
     spots = bottlenecks(deliveries)
     return {'deliveries': deliveries, 'kpis': kpis, 'health': status, 'carriers': cards, 'trend': days,
             'bottlenecks': spots, 'routes': ROUTES, 'lots': lots, 'empties_balance': balances,
             'expiry_rules': {'warn_days': EXPIRY_WARN_DAYS, 'critical_days': EXPIRY_CRITICAL_DAYS},
-            'assistant': assistant.analyze(deliveries, kpis, status, cards, days, TARGETS, rules, INCIDENTS, spots),
+            'assistant': assistant.analyze(deliveries, kpis, status, cards, days, TARGETS, rules, INCIDENTS, spots, lots, balances),
             'incident_kinds': incident_kinds(deliveries), 'targets': TARGETS, 'rules': rules,
             'updated': stamp(current)}
 

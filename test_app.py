@@ -15,6 +15,7 @@ class LogisticsTests(unittest.TestCase):
         app.initialize()
         with app.session() as con:
             con.execute('DELETE FROM returns')
+            con.execute('DELETE FROM lots')
             con.execute('DELETE FROM items')
             con.execute('DELETE FROM events')
             con.execute('DELETE FROM deliveries')
@@ -270,6 +271,8 @@ class LogisticsTests(unittest.TestCase):
         self.assertIn("bad",{l["level"] for l in data["lots"]})
         k=data["kpis"]
         self.assertLess(k["fill_rate"],100); self.assertLess(k["fefo"],100); self.assertLessEqual(k["otif"],k["otd"])
+        titles=[i["titulo"] for i in data["assistant"]["insights"]]
+        self.assertTrue(any(t.startswith("Lote L2598") for t in titles))
     def test_demo_data_is_mostly_healthy(self):
         app.reset_demo()
         data=app.snapshot()
